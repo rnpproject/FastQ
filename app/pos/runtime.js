@@ -22,8 +22,8 @@ const PENDING_SERVER_LOGOUT_KEY = 'fastq-pending-server-logout-v1';
 const OFFLINE_SESSION_KEY = 'fastq-offline-session-v1';
 const STOCK_SNAPSHOT_VERSION = 1;
 const API_BASE = (
-  window.__FASTQ_API_BASE__ ||
-  document.querySelector('meta[name="fastq-api-base"]')?.content ||
+  globalThis.window?.__FASTQ_API_BASE__ ||
+  globalThis.document?.querySelector('meta[name="fastq-api-base"]')?.content ||
   ''
 ).replace(/\/$/, '');
 
@@ -49,11 +49,11 @@ function readOfflineSessionProfile() {
 
 function saveOfflineSessionProfile(session) {
   try {
-    const { id, name, role, outletId, outletName, outletCode } = session.user || {};
+    const { id, name, role, outletId, outletName, outletCode, identifier } = session.user || {};
     localStorage.setItem(
       OFFLINE_SESSION_KEY,
       JSON.stringify({
-        user: { id, name, role, outletId, outletName, outletCode },
+        user: { id, name, role, outletId, outletName, outletCode, identifier },
         expiresAt: session.expiresAt,
       }),
     );
@@ -105,6 +105,22 @@ export async function createPosRuntime({ onChange = () => {}, onToast = () => {}
   state.settings.service = Number(state.settings.service) || 0;
   state.syncOutbox ||= [];
   state.syncIssues ||= [];
+  function removeRedundantOutletSyncEvents(partition) {
+    if (!Array.isArray(partition?.syncOutbox)) return false;
+    const remaining = partition.syncOutbox.filter((event) => event?.type !== 'outlet.upsert');
+    if (remaining.length === partition.syncOutbox.length) return false;
+    partition.syncOutbox = remaining;
+    return true;
+  }
+  let removedRedundantOutletEvents = removeRedundantOutletSyncEvents(state);
+  if (
+    state.localOutletPartitions &&
+    typeof state.localOutletPartitions === 'object' &&
+    !Array.isArray(state.localOutletPartitions)
+  ) {
+    for (const partition of Object.values(state.localOutletPartitions))
+      if (removeRedundantOutletSyncEvents(partition)) removedRedundantOutletEvents = true;
+  }
   state.audit ||= [];
   state.syncCursor ||= 0;
   state.deviceId ||= createUuid();
@@ -151,9 +167,10 @@ export async function createPosRuntime({ onChange = () => {}, onToast = () => {}
     stockHistoryFilters = {},
     disposed = false,
     status = { label: 'Lokal', state: 'local' };
+  if (removedRedundantOutletEvents) storage.queueEncryptedState(state);
   const getCurrentRole = () => session?.user?.role || 'Kasir';
   const getCurrentUserName = () => session?.user?.name || 'Kasir';
-  const getActiveOutletId = () => session?.user?.outletId || state.activeOutlet;
+  const getActiveOutletId = () => state.activeOutlet || session?.user?.outletId;
   const catalogNeedsBootstrap = () => !state.catalogInitialized && state.products.length === 0;
   const offlineStatusLabel = () =>
     catalogNeedsBootstrap()
@@ -283,6 +300,7 @@ export async function createPosRuntime({ onChange = () => {}, onToast = () => {}
       ready: true,
       authenticated: !!session?.user,
       user: session?.user || null,
+      profile: state.settings.profile || null,
       role: getCurrentRole(),
       currentUser: getCurrentUserName(),
       outletId: state.activeOutlet,
@@ -463,6 +481,17 @@ export async function createPosRuntime({ onChange = () => {}, onToast = () => {}
         lastHealthProbeAt = Date.now();
       }
       const outlet = getActiveOutletId();
+      if (session.user.outletId !== outlet) {
+        const result = await sendApiRequest('/api/auth/outlet', 'POST', { outletId: outlet });
+        session = {
+          ...session,
+          user: { ...session.user, ...result.user },
+          expiresAt: result.expiresAt || session.expiresAt,
+        };
+        state.settings.serverSession = session;
+        state.settings.offlineSession = { user: session.user, expiresAt: session.expiresAt };
+        saveOfflineSessionProfile(session);
+      }
       if (manual) {
         const retryableIssues = state.syncIssues.filter(isRetryableStockConflictIssue);
         if (retryableIssues.length) {
@@ -513,7 +542,6 @@ export async function createPosRuntime({ onChange = () => {}, onToast = () => {}
         state.syncInitialized = true;
         const pending = state.syncOutbox.slice(),
           deltas = collectPendingStockDeltas(pending);
-        for (const store of state.outlets) enqueueSyncEvent('outlet.upsert', store, store.id);
         for (const original of state.products) {
           const p = structuredClone(original);
           p.stockByOutlet = { ...(p.stockByOutlet || {}) };
@@ -732,6 +760,7 @@ export async function createPosRuntime({ onChange = () => {}, onToast = () => {}
     switchOutletLocalState(state, result.user.outletId);
     saveOfflineSessionProfile(result);
     session = result;
+    if (state.settings.profile?.id !== result.user.id) delete state.settings.profile;
     state.settings.serverSession = result;
     state.settings.offlineSession = { user: result.user, expiresAt: result.expiresAt };
     state.activeOutlet = result.user.outletId;
@@ -754,9 +783,7 @@ export async function createPosRuntime({ onChange = () => {}, onToast = () => {}
     await loadSalesHistory(true);
     return result;
   }
-  async function uploadProductImage(file) {
-    if (!roleEventTypes[getCurrentRole()]?.has('product.upsert'))
-      throw new Error('Peran akun ini tidak dapat mengunggah gambar produk.');
+  async function compressSquareImage(file, label) {
     if (
       !file ||
       !['image/jpeg', 'image/png', 'image/webp'].includes(file.type) ||
@@ -764,7 +791,7 @@ export async function createPosRuntime({ onChange = () => {}, onToast = () => {}
       file.size <= 0 ||
       file.size > 8 * 1024 * 1024
     )
-      throw new Error('Pilih gambar JPEG, PNG, atau WebP dengan ukuran maksimal 8 MB.');
+      throw new Error(`Pilih gambar ${label} JPEG, PNG, atau WebP dengan ukuran maksimal 8 MB.`);
 
     const sourceBitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
     const scale = 192 / Math.max(sourceBitmap.width, sourceBitmap.height);
@@ -786,7 +813,7 @@ export async function createPosRuntime({ onChange = () => {}, onToast = () => {}
     const context = canvas.getContext('2d');
     if (!context) {
       bitmap.close();
-      throw new Error('Peramban tidak dapat menyiapkan gambar produk.');
+      throw new Error('Peramban tidak dapat menyiapkan gambar.');
     }
     const cropSize = Math.min(bitmap.width, bitmap.height);
     const cropX = Math.floor((bitmap.width - cropSize) / 2);
@@ -829,7 +856,20 @@ export async function createPosRuntime({ onChange = () => {}, onToast = () => {}
       }
     }
     if (!['image/webp', 'image/jpeg'].includes(compressed.type) || compressed.size > 20 * 1024)
-      throw new Error('Gambar belum dapat dikompres hingga maksimal 20 KB.');
+      throw new Error(`Gambar ${label} belum dapat dikompres hingga maksimal 20 KB.`);
+    return compressed;
+  }
+  async function blobToDataUri(blob) {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let binary = '';
+    for (let offset = 0; offset < bytes.length; offset += 0x8000)
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+    return `data:${blob.type};base64,${btoa(binary)}`;
+  }
+  async function uploadProductImage(file) {
+    if (!roleEventTypes[getCurrentRole()]?.has('product.upsert'))
+      throw new Error('Peran akun ini tidak dapat mengunggah gambar produk.');
+    const compressed = await compressSquareImage(file, 'produk');
 
     const response = await fetch(API_BASE + '/api/product-images', {
       method: 'POST',
@@ -841,6 +881,56 @@ export async function createPosRuntime({ onChange = () => {}, onToast = () => {}
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || 'Gambar produk gagal diunggah.');
     return result;
+  }
+  async function loadProfile() {
+    const result = await sendApiRequest('/api/auth/profile');
+    state.settings.profile = result.profile;
+    if (session?.user) {
+      session.user = {
+        ...session.user,
+        name: result.profile.name,
+        identifier: result.profile.identifier,
+        role: result.profile.role,
+        outletName: result.profile.outletName,
+      };
+    }
+    persistState();
+    publishStateChange();
+    return result.profile;
+  }
+  async function saveProfile(input) {
+    const currentProfile = state.settings.profile || (await loadProfile());
+    const photo = input.photoFile
+      ? await blobToDataUri(await compressSquareImage(input.photoFile, 'profil'))
+      : input.removePhoto
+        ? null
+        : currentProfile.photo;
+    const result = await sendApiRequest('/api/auth/profile', 'PUT', {
+      name: input.name,
+      identifier: input.identifier,
+      photo,
+    });
+    state.settings.profile = result.profile;
+    if (session?.user) {
+      session.user = {
+        ...session.user,
+        name: result.profile.name,
+        identifier: result.profile.identifier,
+      };
+      state.settings.offlineSession = {
+        user: session.user,
+        expiresAt: session.expiresAt,
+      };
+    }
+    state.users = state.users.map((user) =>
+      user.id === result.profile.id ? { ...user, name: result.profile.name } : user,
+    );
+    if (session?.user) saveOfflineSessionProfile(session);
+    persistState();
+    await flushPendingWrites();
+    publishStateChange();
+    showToast('Profil berhasil diperbarui.');
+    return result.profile;
   }
   async function registerAccount(input) {
     if (state.products.length || state.sales.length)
@@ -1479,15 +1569,19 @@ export async function createPosRuntime({ onChange = () => {}, onToast = () => {}
     publishStateChange();
     void synchronizeState();
   }
-  function openCashShift(amount) {
+  function openCashShift(amount, shiftName = 'Shift') {
     if (!roleEventTypes[getCurrentRole()]?.has('shift.upsert'))
       return showToast('Peran akun ini tidak dapat membuka shift.');
     if (state.activeShift) return showToast('Shift sedang aktif.');
     amount = Number(amount);
     if (!Number.isSafeInteger(amount) || amount < 0)
       return showToast('Modal awal harus Rupiah bulat.');
+    shiftName = String(shiftName || '').trim();
+    if (!shiftName || shiftName.length > 40)
+      return showToast('Nama shift wajib diisi maksimal 40 karakter.');
     const shift = {
       id: createUuid(),
+      shiftName,
       openedAt: new Date().toISOString(),
       openingCash: amount,
       cashier: getCurrentUserName(),
@@ -1592,6 +1686,17 @@ export async function createPosRuntime({ onChange = () => {}, onToast = () => {}
   }) {
     if (!roleEventTypes[getCurrentRole()]?.has('transfer.upsert'))
       return showToast('Peran akun ini tidak dapat mentransfer stok.');
+    const src = state.outlets.find((x) => x.id === from || x.name === from)?.id || from,
+      dst = state.outlets.find((x) => x.id === to || x.name === to)?.id || to;
+    if (!state.outlets.some((outlet) => outlet.id === src))
+      return showToast('Outlet sumber tidak tersedia. Sinkronkan data outlet lalu coba lagi.');
+    if (!state.outlets.some((outlet) => outlet.id === dst))
+      return showToast('Outlet tujuan belum tersedia. Pastikan outlet sudah terdaftar.');
+    if (src === dst) return showToast('Outlet sumber dan tujuan harus berbeda.');
+    if (src !== getActiveOutletId())
+      return showToast(
+        'Outlet sumber harus sama dengan outlet aktif. Ganti outlet aktif ke sumber sebelum transfer.',
+      );
     const serverReachable = await isServerReachable(navigator.onLine, () =>
       sendApiRequest('/api/health/live', 'GET', null, AbortSignal.timeout(2500)),
     );
@@ -1601,18 +1706,11 @@ export async function createPosRuntime({ onChange = () => {}, onToast = () => {}
       );
     if (!navigator.onLine)
       return showToast('Koneksi terputus sebelum transfer dibuat. Tidak ada perubahan.');
-    const src = state.outlets.find((x) => x.id === from || x.name === from)?.id || from,
-      dst = state.outlets.find((x) => x.id === to || x.name === to)?.id || to,
-      pid = String(productId || productValue || '').split(':')[0],
+    const pid = String(productId || productValue || '').split(':')[0],
       variantId = String(productId || productValue || '').split(':')[1] || null,
       p = findProductById(pid),
       v = variantId ? p?.variants?.find((x) => x.id === variantId) : null;
     qty = Math.floor(Number(qty));
-    if (!state.outlets.some((outlet) => outlet.id === src))
-      return showToast('Outlet sumber tidak tersedia. Sinkronkan data outlet lalu coba lagi.');
-    if (!state.outlets.some((outlet) => outlet.id === dst))
-      return showToast('Outlet tujuan belum tersedia. Pastikan outlet sudah terdaftar.');
-    if (src === dst) return showToast('Outlet sumber dan tujuan harus berbeda.');
     if (!p || qty < 1) return showToast('Produk dan jumlah transfer tidak valid.');
     const source = v || p;
     source.stockByOutlet ||= {};
@@ -1663,9 +1761,23 @@ export async function createPosRuntime({ onChange = () => {}, onToast = () => {}
     publishStateChange();
     void synchronizeState();
   }
-  function setActiveOutlet(id) {
-    const next = state.outlets.find((x) => x.id === id || x.name === id);
-    if (!next) return showToast('Outlet tidak ditemukan.');
+  async function setActiveOutlet(id, outletDetails = null) {
+    const next =
+      state.outlets.find((x) => x.id === id || x.name === id) ||
+      (getCurrentRole() === 'Pemilik' && outletDetails?.id === id ? outletDetails : null);
+    if (!next) throw new Error('Outlet tidak ditemukan.');
+    if (session?.user && navigator.onLine && session.user.outletId !== next.id) {
+      const result = await sendApiRequest('/api/auth/outlet', 'POST', { outletId: next.id });
+      session = {
+        ...session,
+        user: { ...session.user, ...result.user },
+        expiresAt: result.expiresAt || session.expiresAt,
+      };
+      state.settings.serverSession = session;
+      state.settings.offlineSession = { user: session.user, expiresAt: session.expiresAt };
+      saveOfflineSessionProfile(session);
+    }
+    if (!state.outlets.some((outlet) => outlet.id === next.id)) state.outlets.push(next);
     if (next.id !== state.activeOutlet) {
       salesHasMore = false;
       state.settings.salesCursor = null;
@@ -1895,6 +2007,75 @@ export async function createPosRuntime({ onChange = () => {}, onToast = () => {}
       salesLoading = false;
     }
   }
+  async function exportSalesHistory(from, to) {
+    if (getCurrentRole() !== 'Admin')
+      throw new Error('Ekspor riwayat transaksi hanya tersedia untuk Admin.');
+    if (!session) throw new Error('Sesi login diperlukan untuk mengekspor transaksi.');
+    if (!navigator.onLine)
+      throw new Error('Koneksi internet diperlukan untuk mengekspor seluruh riwayat transaksi.');
+    const isValidDate = (value) => {
+      if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      const date = new Date(`${value}T00:00:00.000Z`);
+      return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+    };
+    if (!isValidDate(from) || !isValidDate(to)) throw new Error('Tanggal ekspor tidak valid.');
+    if (from > to) throw new Error('Tanggal awal tidak boleh melewati tanggal akhir.');
+    const sales = [];
+    let cursor = null;
+    const seenCursors = new Set();
+    while (true) {
+      const params = new URLSearchParams({ limit: '100', from, to });
+      if (cursor) {
+        params.set('before', cursor.before);
+        params.set('beforeId', cursor.beforeId);
+      }
+      const result = await sendApiRequest(`/api/sales?${params}`);
+      sales.push(...(result.sales || []));
+      if (!result.hasMore) return sales;
+      if (!result.next?.before || !result.next?.beforeId)
+        throw new Error('Server tidak mengembalikan halaman riwayat berikutnya.');
+      const nextCursor = `${result.next.before}|${result.next.beforeId}`;
+      if (seenCursors.has(nextCursor))
+        throw new Error('Server mengulang halaman riwayat transaksi.');
+      seenCursors.add(nextCursor);
+      cursor = result.next;
+    }
+  }
+  async function exportAttendanceHistory(from, to, userId = 'all') {
+    if (getCurrentRole() !== 'Admin')
+      throw new Error('Ekspor riwayat kehadiran hanya tersedia untuk Admin.');
+    if (!session) throw new Error('Sesi login diperlukan untuk mengekspor kehadiran.');
+    if (!navigator.onLine)
+      throw new Error('Koneksi internet diperlukan untuk mengekspor seluruh riwayat kehadiran.');
+    const isValidDate = (value) => {
+      if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      const date = new Date(`${value}T00:00:00.000Z`);
+      return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+    };
+    if (!isValidDate(from) || !isValidDate(to)) throw new Error('Tanggal ekspor tidak valid.');
+    if (from > to) throw new Error('Tanggal awal tidak boleh melewati tanggal akhir.');
+    const attendance = [];
+    let cursor = null;
+    const seenCursors = new Set();
+    while (true) {
+      const params = new URLSearchParams({ limit: '500', from, to });
+      if (userId && userId !== 'all') params.set('userId', userId);
+      if (cursor) {
+        params.set('before', cursor.before);
+        params.set('beforeId', cursor.beforeId);
+      }
+      const result = await sendApiRequest(`/api/attendance-history?${params}`);
+      attendance.push(...(result.attendance || []));
+      if (!result.hasMore) return attendance;
+      if (!result.next?.before || !result.next?.beforeId)
+        throw new Error('Server tidak mengembalikan halaman riwayat kehadiran berikutnya.');
+      const nextCursor = `${result.next.before}|${result.next.beforeId}`;
+      if (seenCursors.has(nextCursor))
+        throw new Error('Server mengulang halaman riwayat kehadiran.');
+      seenCursors.add(nextCursor);
+      cursor = result.next;
+    }
+  }
   function refreshSalesHistory() {
     return loadSalesHistory(false, true);
   }
@@ -2017,11 +2198,9 @@ export async function createPosRuntime({ onChange = () => {}, onToast = () => {}
     };
   }
   async function refreshAccounts() {
-    if (!navigator.onLine || !['Pemilik', 'Admin', 'Manajer'].includes(getCurrentRole())) return;
+    if (!navigator.onLine || !['Pemilik', 'Admin'].includes(getCurrentRole())) return;
     try {
-      const r = await sendApiRequest(
-        `/api/auth/users?outletId=${encodeURIComponent(state.activeOutlet)}`,
-      );
+      const r = await sendApiRequest('/api/auth/users');
       state.users = (r.users || []).map((user) => ({
         ...user,
         twoFa: user.hasTotp ? 'Aktif' : '?',
@@ -2087,6 +2266,113 @@ export async function createPosRuntime({ onChange = () => {}, onToast = () => {}
     publishStateChange();
     showToast('Akun dinonaktifkan di server.');
   }
+  async function getUserOutletAccess() {
+    if (!['Pemilik', 'Admin'].includes(getCurrentRole()))
+      throw new Error('Hanya Pemilik atau Admin yang dapat mengatur akses outlet.');
+    return sendApiRequest('/api/auth/store-access');
+  }
+  async function getOwnedOutlets() {
+    if (getCurrentRole() !== 'Pemilik')
+      throw new Error('Hanya Pemilik yang dapat melihat daftar outlet.');
+    const result = await sendApiRequest('/api/auth/stores');
+    return result.stores || [];
+  }
+  async function getAccessibleOutlets() {
+    if (!session?.user) throw new Error('Sesi login diperlukan untuk memuat daftar outlet.');
+    if (getCurrentRole() === 'Pemilik')
+      throw new Error('Gunakan daftar outlet milik Owner untuk berpindah outlet.');
+    const result = await sendApiRequest('/api/auth/outlets');
+    if (!Array.isArray(result.outlets))
+      throw new Error('Server tidak mengembalikan daftar outlet yang dapat diakses.');
+    for (const outlet of result.outlets) {
+      const existing = state.outlets.find((item) => item.id === outlet.id);
+      if (existing) Object.assign(existing, outlet);
+      else state.outlets.push(outlet);
+    }
+    persistState();
+    return result.outlets;
+  }
+  async function createOutlet(name, address = '') {
+    if (getCurrentRole() !== 'Pemilik') throw new Error('Hanya Pemilik yang dapat membuat outlet.');
+    const normalizedName = String(name || '').trim();
+    if (!normalizedName || normalizedName.length > 100)
+      throw new Error('Nama outlet wajib diisi, maksimal 100 karakter.');
+    const normalizedAddress = String(address || '').trim();
+    if (normalizedAddress.length > 500) throw new Error('Alamat outlet maksimal 500 karakter.');
+    const result = await sendApiRequest('/api/auth/stores', 'POST', {
+      name: normalizedName,
+      address: normalizedAddress,
+    });
+    showToast(`Outlet "${result.store.name}" berhasil dibuat.`);
+    return result.store;
+  }
+  async function updateOutletDetails(storeId, name, address = '') {
+    if (getCurrentRole() !== 'Pemilik')
+      throw new Error('Hanya Pemilik yang dapat mengubah detail outlet.');
+    const normalizedName = String(name || '').trim();
+    const normalizedAddress = String(address || '').trim();
+    if (!normalizedName || normalizedName.length > 100)
+      throw new Error('Nama outlet wajib diisi, maksimal 100 karakter.');
+    if (normalizedAddress.length > 500) throw new Error('Alamat outlet maksimal 500 karakter.');
+    const result = await sendApiRequest('/api/auth/stores', 'PUT', {
+      storeId,
+      name: normalizedName,
+      address: normalizedAddress,
+    });
+    const localOutlet = state.outlets.find((outlet) => outlet.id === storeId);
+    if (localOutlet) {
+      localOutlet.name = result.store.name;
+      localOutlet.address = result.store.address;
+      persistState();
+      publishStateChange();
+    }
+    showToast(`Detail outlet "${result.store.name}" berhasil diperbarui.`);
+    return result.store;
+  }
+  async function updateUserOutletAccess(userId, storeIds) {
+    const role = getCurrentRole();
+    if (!['Pemilik', 'Admin'].includes(role))
+      throw new Error('Hanya Pemilik atau Admin yang dapat mengatur akses outlet.');
+    const user = state.users.find((item) => item.id === userId);
+    if (user?.id === session?.user?.id)
+      throw new Error('Akun tidak dapat mengubah akses outlet miliknya sendiri.');
+    if (user?.role === 'Pemilik') throw new Error('Akses outlet role Pemilik dikelola otomatis.');
+    if (role === 'Admin' && user?.role !== 'Kasir')
+      throw new Error('Admin hanya dapat mengubah akses outlet akun Kasir.');
+    if (!Array.isArray(storeIds) || !storeIds.length || new Set(storeIds).size !== storeIds.length)
+      throw new Error('Pilih setidaknya satu outlet yang berbeda.');
+    await sendApiRequest('/api/auth/store-access', 'PUT', { userId, storeIds });
+    if (user) user.storeIds = storeIds;
+    publishStateChange();
+    showToast('Akses outlet pengguna diperbarui.');
+  }
+  async function resetUserPassword(userId, input) {
+    if (!['Pemilik', 'Admin'].includes(getCurrentRole()))
+      throw new Error('Hanya Pemilik atau Admin yang dapat mengatur password akun.');
+    if (userId === session?.user?.id)
+      throw new Error('Gunakan halaman Profil untuk mengubah password akun sendiri.');
+    if (String(input.newPassword || '').length < 10)
+      throw new Error('Password baru minimal 10 karakter.');
+    if (input.newPassword !== input.confirmPassword)
+      throw new Error('Konfirmasi password baru tidak sama.');
+    await sendApiRequest('/api/auth/users/password', 'POST', {
+      userId,
+      newPassword: input.newPassword,
+      confirmPassword: input.confirmPassword,
+    });
+    showToast('Password akun berhasil diperbarui. Sesi pengguna tersebut telah dicabut.');
+  }
+  async function changePassword(input) {
+    if (String(input.newPassword || '').length < 10)
+      throw new Error('Password baru minimal 10 karakter.');
+    if (input.newPassword !== input.confirmPassword)
+      throw new Error('Konfirmasi password baru tidak sama.');
+    await sendApiRequest('/api/auth/password', 'POST', {
+      currentPassword: input.currentPassword,
+      newPassword: input.newPassword,
+    });
+    showToast('Password berhasil diganti.');
+  }
   async function init() {
     const result = await initialize();
     if (session) void refreshAccounts();
@@ -2127,6 +2413,8 @@ export async function createPosRuntime({ onChange = () => {}, onToast = () => {}
     getStateSnapshot,
     getProductIcons: () => PRODUCT_ICONS,
     uploadProductImage,
+    loadProfile,
+    saveProfile,
     getStorageDiagnostics: () => ({
       ...storage.getWriteDiagnostics(),
       catalogInitialized: !!state.catalogInitialized,
@@ -2134,6 +2422,8 @@ export async function createPosRuntime({ onChange = () => {}, onToast = () => {}
     }),
     loadSaleDetails,
     loadSalesHistory,
+    exportSalesHistory,
+    exportAttendanceHistory,
     refreshSalesHistory,
     loadStockHistory,
     addProductToCart,
@@ -2163,6 +2453,14 @@ export async function createPosRuntime({ onChange = () => {}, onToast = () => {}
     refreshAccounts,
     createUser,
     deleteUser,
+    getUserOutletAccess,
+    getOwnedOutlets,
+    getAccessibleOutlets,
+    createOutlet,
+    updateOutletDetails,
+    updateUserOutletAccess,
+    resetUserPassword,
+    changePassword,
     flushPendingWrites,
     get state() {
       return state;

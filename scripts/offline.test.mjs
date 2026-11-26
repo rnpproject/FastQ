@@ -5,6 +5,8 @@ import { runInNewContext } from 'node:vm';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import {
   collectPendingStockProductIds,
+  isServerReachable,
+  mergeShiftEvent,
   mergeStockBalances,
   mergeStockSnapshot,
   prepareSyncOutbox,
@@ -34,6 +36,7 @@ const executableRuntimeSource = runtimeSource
   .concat('\nglobalThis.createPosRuntime = createPosRuntime;');
 function loadPosRuntime(context) {
   if (!context.structuredClone) context.structuredClone = structuredClone;
+  if (!context.URLSearchParams) context.URLSearchParams = URLSearchParams;
   context.PRODUCT_ICONS ||= PRODUCT_ICONS;
   context.isProductIcon ||= isProductIcon;
   if (!context.collectPendingStockProductIds)
@@ -52,6 +55,8 @@ async function createClearRuntime(savedState, { online = false, fetchImpl } = {}
     setTimeout: () => 1,
     clearTimeout() {},
     prepareSyncOutbox,
+    isServerReachable,
+    mergeShiftEvent,
     createPosStorage: () => ({
       readSavedState: async () => savedState,
       queueEncryptedState() {},
@@ -118,6 +123,131 @@ test('POS startup does not request the server session before login', async () =>
 
   assert.deepEqual(operations, []);
 });
+
+test('legacy outlet upserts are removed from active and saved outlet queues', async () => {
+  const legacyEvent = (id, outletId) => ({
+    id,
+    type: 'outlet.upsert',
+    outletId,
+    payload: { id: outletId, name: 'Outlet' },
+  });
+  const productEvent = {
+    id: 'product-event',
+    type: 'product.upsert',
+    outletId: 'outlet-a',
+    payload: { id: 'product-a' },
+  };
+  const savedState = {
+    ...pendingClearState([legacyEvent('event-active', 'outlet-a'), productEvent]),
+    localOutletPartitions: {
+      'outlet-b': {
+        syncOutbox: [
+          legacyEvent('event-saved', 'outlet-b'),
+          { ...productEvent, outletId: 'outlet-b' },
+        ],
+      },
+    },
+  };
+
+  const { runtime } = await createClearRuntime(savedState);
+
+  assert.deepEqual(runtime.state.syncOutbox, [productEvent]);
+  assert.deepEqual(runtime.state.localOutletPartitions['outlet-b'].syncOutbox, [
+    { ...productEvent, outletId: 'outlet-b' },
+  ]);
+  assert.equal(runtime.getLocalPendingCount(), 2);
+});
+
+test('Admin transaction export fetches every page for the selected date range', async () => {
+  const savedState = {
+    settings: {
+      serverSession: {
+        user: {
+          id: '00000000-0000-4000-8000-000000000001',
+          role: 'Admin',
+          outletId: '00000000-0000-4000-8000-000000000002',
+        },
+      },
+    },
+  };
+  const requests = [];
+  const pages = [
+    {
+      sales: [{ id: 'sale-one' }],
+      hasMore: true,
+      next: {
+        before: '2026-11-20T08:00:00.000Z',
+        beforeId: '00000000-0000-4000-8000-000000000003',
+      },
+    },
+    { sales: [{ id: 'sale-two' }], hasMore: false, next: null },
+  ];
+  const { runtime } = await createClearRuntime(savedState, {
+    online: true,
+    fetchImpl: async (url) => {
+      requests.push(new URL(url, 'https://pos.local'));
+      return { ok: true, json: async () => pages.shift() };
+    },
+  });
+
+  const sales = await runtime.exportSalesHistory('2026-11-01', '2026-11-28');
+
+  assert.equal(sales.length, 2);
+  assert.equal(sales[0].id, 'sale-one');
+  assert.equal(sales[1].id, 'sale-two');
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].searchParams.get('from'), '2026-11-01');
+  assert.equal(requests[0].searchParams.get('to'), '2026-11-28');
+  assert.equal(requests[0].searchParams.get('limit'), '100');
+  assert.equal(requests[1].searchParams.get('beforeId'), '00000000-0000-4000-8000-000000000003');
+});
+test('transaction export is restricted to Admin accounts', async () => {
+  const savedState = {
+    settings: {
+      serverSession: {
+        user: { id: 'cashier-a', role: 'Kasir', outletId: 'outlet-a' },
+      },
+    },
+  };
+  const { runtime, operations } = await createClearRuntime(savedState, { online: true });
+
+  await assert.rejects(
+    runtime.exportSalesHistory('2026-11-01', '2026-11-28'),
+    /hanya tersedia untuk Admin/,
+  );
+  assert.deepEqual(operations, []);
+});
+test('users load and cache their server-authorized outlets for switching', async () => {
+  const savedState = {
+    settings: {
+      serverSession: {
+        user: {
+          id: '00000000-0000-4000-8000-000000000001',
+          role: 'Kasir',
+          outletId: '00000000-0000-4000-8000-000000000002',
+        },
+      },
+    },
+  };
+  const { runtime, operations } = await createClearRuntime(savedState, {
+    online: true,
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        outlets: [
+          { id: '00000000-0000-4000-8000-000000000002', name: 'Toko Utama' },
+          { id: '00000000-0000-4000-8000-000000000003', name: 'Cabang' },
+        ],
+      }),
+    }),
+  });
+
+  const outlets = await runtime.getAccessibleOutlets();
+
+  assert.equal(operations[0], '/api/auth/outlets');
+  assert.equal(outlets.length, 2);
+  assert.equal(runtime.getStateSnapshot().outlets[1].name, 'Cabang');
+});
 test('registration dialog stacks above the required login overlay', () => {
   const startupZIndex = Number(
     designSystemSource.match(
@@ -142,9 +272,29 @@ test('action dialog submissions show a busy state and restore the button after f
   assert.match(posPageSource, /Menyimpan…/);
   assert.match(posPageSource, /button\.removeAttribute\('aria-busy'\)/);
 });
+test('only Owners or Admins viewing Kasir accounts can open outlet access settings', () => {
+  assert.match(posPageSource, /function canManageUserOutletAccess\(user/);
+  assert.match(posPageSource, /snapshot\.role === 'Admin' && user\.role === 'Kasir'/);
+  assert.match(posPageSource, /userOutletAccessButton'\)\.hidden = !canEditOutletAccess/);
+});
+test('transaction export filter and product modal scrolling stay within their cards', () => {
+  assert.match(posPageSource, /id="exportTransactionHistoryButton"/);
+  assert.match(posPageSource, /function openTransactionExportDialog\(\)/);
+  assert.match(posPageSource, /PosRuntime\.exportSalesHistory\(startDate, endDate\)/);
+  assert.match(posPageSource, /PosRuntime\.getAccessibleOutlets\(\)/);
+  assert.match(posPageSource, /max-h-\[calc\(100dvh-2rem\)\].*overflow-y-auto/);
+  assert.match(posPageSource, /id="prodFormIconGrid"[\s\S]*?max-h-48[\s\S]*?overflow-y-auto/);
+  assert.match(posPageSource, /name: 'outlet',[\s\S]{0,180}customDropdown: true/);
+});
+test('product visual tabs clear inactive styles and expose their active state', () => {
+  assert.match(posPageSource, /button\.classList\.toggle\('border-slate-200', !active\)/);
+  assert.match(posPageSource, /button\.classList\.toggle\('bg-white', !active\)/);
+  assert.match(posPageSource, /button\.setAttribute\('aria-pressed', String\(active\)\)/);
+  assert.match(posPageSource, /focus-visible:ring-2 focus-visible:ring-blue-200/);
+});
 test('shift, attendance, and held-order controls derive their labels from runtime state', () => {
   assert.match(posPageSource, /id="activeShiftStatusText"/);
-  assert.match(posPageSource, /activeShift \? 'Shift aktif' : 'Belum ada shift'/);
+  assert.match(posPageSource, /activeShift\.shiftName \|\| 'Shift'/);
   assert.match(posPageSource, /activeShift \? 'Tutup shift' : 'Buka shift'/);
   assert.match(posPageSource, /id="attendanceInButton"/);
   assert.match(posPageSource, /id="attendanceOutButton"/);
@@ -318,6 +468,37 @@ test('refreshing recent sales updates report data without changing older-page cu
     ['new-sale', 'older-sale'],
   );
   assert.deepEqual(runtime.state.settings.salesCursor, olderCursor);
+});
+test('opening a shift saves its trimmed display name to the local history event', async () => {
+  const { runtime } = await createClearRuntime(pendingClearState(), { online: false });
+
+  runtime.openCashShift(100, ' Shift 1 ');
+
+  assert.equal(runtime.state.activeShift.shiftName, 'Shift 1');
+  assert.equal(
+    runtime.state.syncOutbox.find((event) => event.type === 'shift.upsert').payload.shiftName,
+    'Shift 1',
+  );
+});
+test('Admin outlet access changes are limited to Kasir accounts, never the active account', async () => {
+  const savedState = pendingClearState();
+  savedState.users = [
+    { id: 'admin-a', role: 'Admin' },
+    { id: 'admin-b', role: 'Admin' },
+    { id: 'cashier-a', role: 'Kasir' },
+  ];
+  const { runtime, operations } = await createClearRuntime(savedState, {
+    fetchImpl: async () => ({ ok: true, json: async () => ({}) }),
+  });
+
+  await assert.rejects(runtime.updateUserOutletAccess('admin-a', ['outlet-a']), /miliknya sendiri/);
+  await assert.rejects(
+    runtime.updateUserOutletAccess('admin-b', ['outlet-a']),
+    /hanya dapat mengubah akses outlet akun Kasir/,
+  );
+  await runtime.updateUserOutletAccess('cashier-a', ['outlet-a']);
+
+  assert.ok(operations.includes('/api/auth/store-access'));
 });
 test('stock history filters use custom kind and date controls', () => {
   assert.match(posPageSource, /id="stockHistoryKind"[\s\S]*type="button"[\s\S]*data-dd-menu/);
@@ -593,6 +774,98 @@ test('clearing local data syncs pending events before storage and server logout'
   assert.deepEqual(operations, ['/api/health/live', '/api/sync', 'clear', '/api/auth/logout']);
   assert.equal(runtime.getLocalPendingCount(), 0);
 });
+test('stock transfer from a non-active outlet is rejected before local changes or network calls', async () => {
+  const savedState = {
+    ...pendingClearState(),
+    activeOutlet: 'outlet-b',
+    outlets: [
+      { id: 'outlet-a', name: 'Outlet A' },
+      { id: 'outlet-b', name: 'Outlet B' },
+    ],
+    products: [
+      {
+        id: 'product-a',
+        stock: 4,
+        stockByOutlet: { 'outlet-a': 4, 'outlet-b': 2 },
+      },
+    ],
+    settings: {
+      serverSession: {
+        user: { id: 'admin-a', role: 'Admin', outletId: 'outlet-b' },
+      },
+    },
+  };
+  const { runtime, operations } = await createClearRuntime(savedState, {
+    online: true,
+    fetchImpl: async () => ({ ok: true, json: async () => ({}) }),
+  });
+
+  await runtime.transferStockBetweenOutlets({
+    from: 'outlet-a',
+    to: 'outlet-b',
+    productId: 'product-a',
+    qty: 1,
+  });
+
+  assert.deepEqual(operations, []);
+  assert.equal(runtime.state.products[0].stockByOutlet['outlet-a'], 4);
+  assert.equal(runtime.state.products[0].stockByOutlet['outlet-b'], 2);
+  assert.equal(runtime.state.transfers.length, 0);
+  assert.equal(runtime.state.syncOutbox.length, 0);
+});
+test('stock transfer from the active outlet updates balances and queues the transfer event', async () => {
+  const savedState = {
+    ...pendingClearState(),
+    outlets: [
+      { id: 'outlet-a', name: 'Outlet A' },
+      { id: 'outlet-b', name: 'Outlet B' },
+    ],
+    products: [
+      {
+        id: 'product-a',
+        name: 'Product A',
+        stock: 4,
+        stockByOutlet: { 'outlet-a': 4, 'outlet-b': 2 },
+      },
+    ],
+  };
+  const { runtime } = await createClearRuntime(savedState, {
+    online: true,
+    fetchImpl: async (url) => {
+      if (url === '/api/health/live') return { ok: true, json: async () => ({}) };
+      return {
+        ok: true,
+        json: async () => ({
+          accepted: [],
+          rejected: [],
+          events: [],
+          stockBalances: [],
+          transfers: [],
+          outlets: [],
+          bootstrapProducts: [],
+          catalogBootstrapped: false,
+          bootstrapTruncated: false,
+          activeShift: null,
+          knownShift: null,
+          cursor: 0,
+          hasMore: false,
+        }),
+      };
+    },
+  });
+
+  await runtime.transferStockBetweenOutlets({
+    from: 'outlet-a',
+    to: 'outlet-b',
+    productId: 'product-a',
+    qty: 1,
+  });
+
+  assert.equal(runtime.state.products[0].stockByOutlet['outlet-a'], 3);
+  assert.equal(runtime.state.products[0].stockByOutlet['outlet-b'], 3);
+  assert.equal(runtime.state.transfers[0].from, 'outlet-a');
+  assert.ok(runtime.state.syncOutbox.some((event) => event.type === 'transfer.upsert'));
+});
 test('incremental sync without a stock snapshot preserves the cached balances', async () => {
   const savedState = {
     products: [{ id: 'product-a', stock: 7, stockByOutlet: { 'outlet-a': 7 } }],
@@ -650,6 +923,46 @@ test('incremental sync without a stock snapshot preserves the cached balances', 
   await runtime.synchronize();
   assert.equal(runtime.state.products[0].stock, 7);
   assert.equal(runtime.state.products[0].stockByOutlet['outlet-a'], 7);
+});
+
+test('initial Admin sync does not re-upload server-managed outlet records', async () => {
+  const savedState = {
+    ...pendingClearState(),
+    outlets: [
+      { id: 'outlet-a', name: 'Outlet A' },
+      { id: 'outlet-b', name: 'Outlet B' },
+    ],
+  };
+  const { runtime } = await createClearRuntime(savedState, {
+    online: true,
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({
+        accepted: [],
+        rejected: [],
+        events: [],
+        attendance: [],
+        stockBalances: [],
+        transfers: [],
+        outlets: [],
+        bootstrapProducts: [],
+        catalogBootstrapped: false,
+        bootstrapTruncated: false,
+        activeShift: null,
+        knownShift: null,
+        cursor: 0,
+        hasMore: false,
+      }),
+    }),
+  });
+
+  await runtime.synchronize();
+
+  assert.equal(runtime.state.syncInitialized, true);
+  assert.equal(
+    runtime.state.syncOutbox.some((event) => event.type === 'outlet.upsert'),
+    false,
+  );
 });
 
 test('incremental sync reconciles remote stock while preserving products with pending local changes', async () => {

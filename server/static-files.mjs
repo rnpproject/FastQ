@@ -104,11 +104,16 @@ export async function serveStaticFile(
     body = Buffer.from(
       body.toString('utf8').replace(/<script(?=[\s>])/g, `<script nonce="${nonce}"`),
     );
+  const isUnversionedAppAsset =
+    /\.(?:js|mjs|css)$/.test(pathname) && !pathname.startsWith('/assets/');
   res.writeHead(200, {
     'Content-Type': mime[extname(file)] || 'application/octet-stream',
     ...securityHeaders(nonce),
     'Cache-Control':
-      file.endsWith('index.html') || file.endsWith('pos.html') || file.endsWith('sw.js')
+      file.endsWith('index.html') ||
+      file.endsWith('pos.html') ||
+      file.endsWith('sw.js') ||
+      isUnversionedAppAsset
         ? 'no-cache'
         : 'public, max-age=3600',
   });

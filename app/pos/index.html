@@ -102,8 +102,9 @@
           class="hidden lg:inline-flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-slate-200/80 bg-slate-50/70 hover:bg-white text-xs font-semibold text-[#0F2544] transition-all whitespace-nowrap"
         >
           <span
+            id="headerProfileAvatar"
             class="w-6 h-6 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center text-[10px] font-extrabold text-[#1447E6]"
-            >AD</span
+            >U</span
           >
           <span id="designCurrentUser">Memuat akun…</span>
           <i class="ph-bold ph-caret-down text-[10px] text-slate-400"></i>
@@ -200,7 +201,8 @@
               <button
                 onclick="navigateTo('pengguna')"
                 data-nav="pengguna"
-                class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium text-slate-600 hover:bg-slate-50 hover:text-[#0F2544] transition-all whitespace-nowrap"
+                data-user-management-only
+                class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium text-slate-600 hover:bg-slate-50 hover:text-[#0F2544] transition-all whitespace-nowrap hidden"
               >
                 <i class="ph-duotone ph-shield-check text-[19px] shrink-0"></i>
                 <span>Pengguna</span>
@@ -1293,9 +1295,21 @@
             <div class="lg:col-span-7 card-surface rounded-2xl p-4 space-y-3">
               <div class="flex items-center justify-between gap-2">
                 <h2 class="text-sm font-extrabold text-[#0F2544] whitespace-nowrap">Transaksi</h2>
-                <span class="text-[11px] text-slate-400 font-medium truncate whitespace-nowrap"
-                  >Klik transaksi untuk detail</span
-                >
+                <div class="flex items-center gap-2">
+                  <span
+                    class="hidden sm:inline text-[11px] text-slate-400 font-medium truncate whitespace-nowrap"
+                    >Klik transaksi untuk detail</span
+                  >
+                  <button
+                    id="exportTransactionHistoryButton"
+                    type="button"
+                    onclick="openTransactionExportDialog()"
+                    class="hidden shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#0F2544] hover:bg-slate-50"
+                  >
+                    <i class="ph ph-download-simple"></i>
+                    <span>Ekspor</span>
+                  </button>
+                </div>
               </div>
 
               <div class="relative">
@@ -1778,8 +1792,9 @@
             <div
               class="hidden sm:grid sm:grid-cols-12 px-3 py-2 rounded-xl bg-slate-50 text-[10px] font-bold uppercase tracking-[0.06em] text-slate-500 whitespace-nowrap"
             >
-              <div class="col-span-3">Mulai</div>
-              <div class="col-span-3">Selesai</div>
+              <div class="col-span-2">Shift</div>
+              <div class="col-span-2">Mulai</div>
+              <div class="col-span-2">Selesai</div>
               <div class="col-span-4">Kasir bertugas</div>
               <div class="col-span-2 text-right">Selisih</div>
             </div>
@@ -1904,37 +1919,50 @@
                   Klik baris untuk detail kehadiran
                 </p>
               </div>
-              <div class="relative w-32 sm:w-36 shrink-0" data-dropdown="absenStaffFilter">
-                <input type="hidden" id="absenStaffFilter" value="all" />
+              <div class="flex items-center gap-1.5 shrink-0">
                 <button
                   type="button"
-                  onclick="toggleCustomDropdown('absenStaffFilter')"
-                  class="w-full flex items-center justify-between gap-1.5 pl-3 pr-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-white text-xs font-semibold text-[#0F2544] focus:border-[#1447E6] focus:outline-none transition-colors"
+                  data-admin-only
+                  hidden
+                  onclick="openAttendanceExportDialog()"
+                  aria-label="Ekspor riwayat kehadiran"
+                  class="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-[#0F2544] hover:bg-slate-50"
                 >
-                  <span data-dd-label class="truncate whitespace-nowrap">Semua staf</span>
-                  <i
-                    data-dd-caret
-                    class="ph ph-caret-down text-slate-400 text-xs shrink-0 transition-transform duration-150"
-                  ></i>
+                  <i class="ph ph-download-simple text-sm"></i>
+                  <span class="hidden sm:inline">Ekspor</span>
                 </button>
-                <div
-                  data-dd-menu
-                  class="hidden absolute right-0 min-w-full w-40 mt-1.5 z-40 bg-white rounded-xl border border-slate-200/90 shadow-lg py-1 max-h-56 overflow-y-auto product-scroll"
-                >
+                <div class="relative w-32 sm:w-36" data-dropdown="absenStaffFilter">
+                  <input type="hidden" id="absenStaffFilter" value="all" />
                   <button
                     type="button"
-                    data-dd-option="all"
-                    onclick="
-                      selectCustomDropdown('absenStaffFilter', 'all', 'Semua staf', () => {
-                        absenPage = 1;
-                        renderAttendancePage();
-                      })
-                    "
-                    class="w-full px-3 py-2 text-left text-xs font-bold bg-blue-50/70 text-[#1447E6] flex items-center justify-between gap-2 whitespace-nowrap"
+                    onclick="toggleCustomDropdown('absenStaffFilter')"
+                    class="w-full flex items-center justify-between gap-1.5 pl-3 pr-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-white text-xs font-semibold text-[#0F2544] focus:border-[#1447E6] focus:outline-none transition-colors"
                   >
-                    <span class="truncate">Semua staf</span>
-                    <i data-dd-check class="ph-bold ph-check text-xs text-[#1447E6] shrink-0"></i>
+                    <span data-dd-label class="truncate whitespace-nowrap">Semua staf</span>
+                    <i
+                      data-dd-caret
+                      class="ph ph-caret-down text-slate-400 text-xs shrink-0 transition-transform duration-150"
+                    ></i>
                   </button>
+                  <div
+                    data-dd-menu
+                    class="hidden absolute right-0 min-w-full w-40 mt-1.5 z-40 bg-white rounded-xl border border-slate-200/90 shadow-lg py-1 max-h-56 overflow-y-auto product-scroll"
+                  >
+                    <button
+                      type="button"
+                      data-dd-option="all"
+                      onclick="
+                        selectCustomDropdown('absenStaffFilter', 'all', 'Semua staf', () => {
+                          absenPage = 1;
+                          renderAttendancePage();
+                        })
+                      "
+                      class="w-full px-3 py-2 text-left text-xs font-bold bg-blue-50/70 text-[#1447E6] flex items-center justify-between gap-2 whitespace-nowrap"
+                    >
+                      <span class="truncate">Semua staf</span>
+                      <i data-dd-check class="ph-bold ph-check text-xs text-[#1447E6] shrink-0"></i>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1984,6 +2012,15 @@
                 Atur outlet dan pindahkan stok dengan riwayat tercatat.
               </p>
             </div>
+            <button
+              type="button"
+              data-owner-only
+              hidden
+              onclick="openOutletCreationDialog()"
+              class="shrink-0 rounded-xl bg-[#1447E6] px-3 py-2 text-xs font-bold text-white hover:bg-blue-700"
+            >
+              Tambah outlet
+            </button>
           </div>
 
           <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -1994,7 +2031,7 @@
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label class="block text-xs font-semibold text-slate-600 mb-1 whitespace-nowrap"
-                    >Dari outlet</label
+                    >Dari outlet aktif</label
                   >
                   <div class="relative" data-dropdown="transferFrom">
                     <input type="hidden" id="transferFrom" value="Rnp Store" />
@@ -2206,6 +2243,8 @@
             </div>
             <button
               onclick="window.PosRuntime?.users()"
+              data-owner-only
+              hidden
               class="px-3 py-2 rounded-xl bg-[#1447E6] text-xs font-bold text-white whitespace-nowrap"
             >
               Tambah pengguna
@@ -2223,6 +2262,138 @@
             </div>
             <div id="penggunaList" class="divide-y divide-slate-100"></div>
           </div>
+        </section>
+
+        <!-- ==================== PAGE: PROFIL ==================== -->
+        <section id="page-profil" class="page-section hidden space-y-4 pt-[3.65rem]">
+          <div class="tab-fixed-header px-4 lg:px-6 h-[3.35rem] flex items-center">
+            <div class="min-w-0">
+              <h1 class="text-base lg:text-xl font-extrabold text-[#0F2544] leading-tight">
+                Profil saya
+              </h1>
+              <p class="hidden sm:block text-[11px] text-slate-500">
+                Perbarui informasi akun dan foto profil.
+              </p>
+            </div>
+          </div>
+
+          <form
+            id="profileForm"
+            onsubmit="saveProfileFromPos(event)"
+            class="mx-auto w-full max-w-2xl space-y-4"
+          >
+            <div class="card-surface rounded-2xl p-4 sm:p-6">
+              <div
+                class="flex flex-col items-center gap-3 border-b border-slate-100 pb-5 sm:flex-row sm:items-start"
+              >
+                <div
+                  class="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 text-2xl font-bold text-slate-500"
+                >
+                  <img
+                    id="profilePhotoPreview"
+                    class="hidden h-full w-full object-cover"
+                    alt="Foto profil"
+                  />
+                  <span id="profilePhotoInitial">U</span>
+                </div>
+                <div class="space-y-2 text-center sm:text-left">
+                  <h2 class="text-sm font-extrabold text-[#0F2544]">Foto profil</h2>
+                  <p class="text-xs text-slate-500">
+                    Pilih foto JPEG, PNG, atau WebP. Foto akan dipotong persegi dan dikompres
+                    otomatis.
+                  </p>
+                  <div class="flex flex-wrap justify-center gap-2 sm:justify-start">
+                    <label
+                      for="profilePhotoInput"
+                      class="cursor-pointer rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-[#0F2544] hover:bg-slate-50"
+                    >
+                      Pilih foto
+                    </label>
+                    <input
+                      id="profilePhotoInput"
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      class="sr-only"
+                    />
+                    <button
+                      id="profilePhotoRemoveButton"
+                      type="button"
+                      onclick="removeProfilePhoto()"
+                      class="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                    >
+                      Hapus foto
+                    </button>
+                  </div>
+                  <p id="profilePhotoStatus" class="text-xs text-slate-500" aria-live="polite"></p>
+                </div>
+              </div>
+
+              <div class="grid gap-4 pt-5 sm:grid-cols-2">
+                <label class="block space-y-1.5">
+                  <span class="text-xs font-semibold text-slate-700">Nama</span>
+                  <input
+                    id="profileNameInput"
+                    name="name"
+                    required
+                    maxlength="60"
+                    autocomplete="name"
+                    class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-[#1447E6] focus:outline-none"
+                  />
+                </label>
+                <label class="block space-y-1.5">
+                  <span class="text-xs font-semibold text-slate-700">Email atau nomor HP</span>
+                  <input
+                    id="profileIdentifierInput"
+                    name="identifier"
+                    required
+                    maxlength="254"
+                    autocomplete="username"
+                    class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:border-[#1447E6] focus:outline-none"
+                  />
+                </label>
+                <div class="space-y-1.5">
+                  <span class="block text-xs font-semibold text-slate-700">Role</span>
+                  <p
+                    id="profileRoleText"
+                    class="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-sm text-slate-600"
+                  >
+                    -
+                  </p>
+                </div>
+                <div class="space-y-1.5">
+                  <span class="block text-xs font-semibold text-slate-700">Toko utama</span>
+                  <p
+                    id="profileOutletText"
+                    class="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5 text-sm text-slate-600"
+                  >
+                    -
+                  </p>
+                </div>
+              </div>
+
+              <p
+                id="profileSaveStatus"
+                class="mt-4 min-h-4 text-xs text-slate-500"
+                role="status"
+              ></p>
+              <div class="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onclick="openPasswordChangeDialog()"
+                  class="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-semibold text-[#0F2544] hover:bg-slate-50 sm:w-auto"
+                >
+                  Ganti password
+                </button>
+                <button
+                  id="profileSaveButton"
+                  type="submit"
+                  class="w-full rounded-xl bg-[#1447E6] px-4 py-2.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50 sm:w-auto"
+                >
+                  Simpan profil
+                </button>
+              </div>
+            </div>
+          </form>
         </section>
       </main>
     </div>
@@ -2350,14 +2521,23 @@
           <div class="flex items-center justify-between pb-3 border-b border-slate-100">
             <div class="flex items-center gap-2.5 min-w-0">
               <div
+                id="menuProfileAvatar"
                 class="w-9 h-9 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-xs font-extrabold text-[#1447E6] shrink-0"
               >
-                AD
+                U
               </div>
               <div class="min-w-0">
-                <p class="text-xs font-bold text-[#0F2544] truncate whitespace-nowrap">Admin Uji</p>
-                <p class="text-[11px] text-slate-400 truncate whitespace-nowrap">
-                  Kasir Utama • Rnp Store
+                <p
+                  id="menuProfileName"
+                  class="text-xs font-bold text-[#0F2544] truncate whitespace-nowrap"
+                >
+                  Memuat akun...
+                </p>
+                <p
+                  id="menuProfileMeta"
+                  class="text-[11px] text-slate-400 truncate whitespace-nowrap"
+                >
+                  -
                 </p>
               </div>
             </div>
@@ -2440,10 +2620,21 @@
                 navigateTo('pengguna');
                 closeModal('menuDrawerModal');
               "
-              class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 text-xs font-semibold text-[#0F2544] transition-colors whitespace-nowrap"
+              data-user-management-only
+              class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 text-xs font-semibold text-[#0F2544] transition-colors whitespace-nowrap hidden"
             >
               <i class="ph-duotone ph-shield-check text-lg text-[#1447E6] shrink-0"></i>
               <span>Pengguna & akses</span>
+            </button>
+            <button
+              onclick="
+                navigateTo('profil');
+                closeModal('menuDrawerModal');
+              "
+              class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-slate-50 text-xs font-semibold text-[#0F2544] transition-colors whitespace-nowrap"
+            >
+              <i class="ph-duotone ph-user-circle text-lg text-[#1447E6] shrink-0"></i>
+              <span>Profil saya</span>
             </button>
           </div>
         </div>
@@ -2952,8 +3143,31 @@
         </div>
         <div id="shiftPreviewGrid" class="grid grid-cols-2 gap-2.5 text-xs tabular-nums"></div>
         <div class="p-3.5 rounded-xl bg-slate-50/90 border border-slate-200/70 space-y-1">
-          <p class="text-[11px] font-bold text-[#0F2544] whitespace-nowrap">Keterangan</p>
+          <p
+            id="shiftPreviewNoteLabel"
+            class="text-[11px] font-bold text-[#0F2544] whitespace-nowrap"
+          >
+            Keterangan
+          </p>
           <p id="shiftPreviewNote" class="text-xs text-slate-600 leading-relaxed">-</p>
+        </div>
+        <div id="userPreviewActions" class="grid grid-cols-2 gap-2" hidden>
+          <button
+            id="userResetPasswordButton"
+            type="button"
+            onclick="openUserPasswordDialog()"
+            class="rounded-xl border border-slate-200 px-3 py-2.5 text-xs font-semibold text-[#0F2544] hover:bg-slate-50"
+          >
+            Ubah password
+          </button>
+          <button
+            id="userOutletAccessButton"
+            type="button"
+            onclick="openUserOutletAccessDialog()"
+            class="rounded-xl bg-[#1447E6] px-3 py-2.5 text-xs font-bold text-white hover:bg-blue-700"
+          >
+            Akses outlet
+          </button>
         </div>
         <button
           onclick="closeModal('shiftPreviewModal')"
@@ -3127,9 +3341,11 @@
     <div
       id="productModal"
       onclick="if (event.target === this) closeModal('productModal');"
-      class="hidden fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[2px] flex items-center justify-center p-4"
+      class="hidden fixed inset-0 z-50 overflow-y-auto bg-slate-900/40 backdrop-blur-[2px] flex items-center justify-center p-4"
     >
-      <div class="bg-white w-full max-w-md rounded-2xl p-5 shadow-xl space-y-4">
+      <div
+        class="product-scroll max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl bg-white p-5 shadow-xl space-y-4"
+      >
         <div class="flex items-center justify-between">
           <h3
             id="productModalTitle"
@@ -3225,22 +3441,27 @@
               <button
                 id="prodVisualTabIcon"
                 type="button"
+                aria-pressed="true"
                 onclick="setProductVisualTab('icon')"
-                class="px-3 py-1.5 rounded-lg border border-[#1447E6] bg-blue-50 text-xs font-semibold text-[#1447E6]"
+                class="px-3 py-1.5 rounded-lg border border-[#1447E6] bg-blue-50 text-xs font-semibold text-[#1447E6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
               >
                 Ikon
               </button>
               <button
                 id="prodVisualTabImage"
                 type="button"
+                aria-pressed="false"
                 onclick="setProductVisualTab('image')"
-                class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600"
+                class="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
               >
                 Gambar
               </button>
             </div>
             <div id="prodVisualIconPanel">
-              <div id="prodFormIconGrid" class="grid grid-cols-4 gap-2"></div>
+              <div
+                id="prodFormIconGrid"
+                class="product-scroll grid max-h-48 grid-cols-4 gap-2 overflow-y-auto overscroll-contain pr-1"
+              ></div>
             </div>
             <div id="prodVisualImagePanel" class="hidden space-y-2">
               <input
@@ -3397,6 +3618,8 @@
       let heldCart = null;
       let globalDiscount = 0;
       let currentPage = 'kasir';
+      let selectedManagedUserId = null;
+      let profileDirty = false;
       let runtimeRefreshFrame = null;
       let pendingRuntimeData = null;
       let catalogView = 'list';
@@ -3441,6 +3664,10 @@
 
       let usersList = [];
       let liveOutlets = [];
+      let ownerManagedOutlets = null;
+      let ownerOutletsRequest = null;
+      let ownerManagedOutletsOwnerId = null;
+      let ownerOutletsRequestOwnerId = null;
       let cachedCategoryOptions = '';
       let lastAttendanceStaffSignature = '';
 
@@ -3517,20 +3744,19 @@
         const showImage = tab === 'image';
         document.getElementById('prodVisualIconPanel')?.classList.toggle('hidden', showImage);
         document.getElementById('prodVisualImagePanel')?.classList.toggle('hidden', !showImage);
-        document
-          .getElementById('prodVisualTabIcon')
-          ?.classList.toggle('border-[#1447E6]', !showImage);
-        document.getElementById('prodVisualTabIcon')?.classList.toggle('bg-blue-50', !showImage);
-        document
-          .getElementById('prodVisualTabIcon')
-          ?.classList.toggle('text-[#1447E6]', !showImage);
-        document
-          .getElementById('prodVisualTabImage')
-          ?.classList.toggle('border-[#1447E6]', showImage);
-        document.getElementById('prodVisualTabImage')?.classList.toggle('bg-blue-50', showImage);
-        document
-          .getElementById('prodVisualTabImage')
-          ?.classList.toggle('text-[#1447E6]', showImage);
+        const updateTab = (id, active) => {
+          const button = document.getElementById(id);
+          if (!button) return;
+          button.classList.toggle('border-[#1447E6]', active);
+          button.classList.toggle('bg-blue-50', active);
+          button.classList.toggle('text-[#1447E6]', active);
+          button.classList.toggle('border-slate-200', !active);
+          button.classList.toggle('bg-white', !active);
+          button.classList.toggle('text-slate-600', !active);
+          button.setAttribute('aria-pressed', String(active));
+        };
+        updateTab('prodVisualTabIcon', !showImage);
+        updateTab('prodVisualTabImage', showImage);
       }
 
       function setProductImagePreview(imageId, objectUrl = null) {
@@ -3829,8 +4055,9 @@
         if (dd) {
           const lbl = dd.querySelector('[data-dd-label]');
           if (lbl) lbl.textContent = labelText;
-          dd.querySelectorAll('[data-dd-option]').forEach((opt) => {
-            const isSelected = opt.dataset.ddOption === String(value);
+          dd.querySelectorAll('[data-dd-option], [data-action-select]').forEach((opt) => {
+            const optionValue = opt.dataset.ddOption ?? opt.dataset.actionSelect;
+            const isSelected = optionValue === String(value);
             opt.classList.toggle('bg-blue-50/70', isSelected);
             opt.classList.toggle('text-[#1447E6]', isSelected);
             opt.classList.toggle('font-bold', isSelected);
@@ -3844,6 +4071,43 @@
         if (typeof callback === 'function') callback();
       }
 
+      function toggleActionMultiOption(id, value) {
+        const input = document.getElementById(id);
+        const dropdown = document.querySelector(`[data-dropdown="${id}"]`);
+        if (!input || !dropdown) return;
+        const option = [...dropdown.querySelectorAll('[data-action-multi-option]')].find(
+          (item) => item.dataset.actionMultiOption === String(value),
+        );
+        if (!option || option.dataset.locked === 'true') return;
+        const selected = new Set(input.value ? input.value.split(',') : []);
+        if (selected.has(String(value))) selected.delete(String(value));
+        else selected.add(String(value));
+        input.value = [...selected].join(',');
+        const labels = [...selected].map((selectedValue) => {
+          const item = [...dropdown.querySelectorAll('[data-action-multi-option]')].find(
+            (optionItem) => optionItem.dataset.actionMultiOption === selectedValue,
+          );
+          return item?.dataset.label || '';
+        });
+        const label = dropdown.querySelector('[data-dd-label]');
+        if (label)
+          label.textContent =
+            labels.length === 0
+              ? 'Pilih outlet'
+              : labels.length === 1
+                ? labels[0]
+                : `${labels.length} outlet dipilih`;
+        dropdown.querySelectorAll('[data-action-multi-option]').forEach((item) => {
+          const isSelected = selected.has(item.dataset.actionMultiOption);
+          item.classList.toggle('bg-blue-50/70', isSelected);
+          item.classList.toggle('text-[#1447E6]', isSelected);
+          item.classList.toggle('font-bold', isSelected);
+          item.classList.toggle('text-[#0F2544]', !isSelected);
+          item.classList.toggle('font-medium', !isSelected);
+          item.querySelector('[data-dd-check]')?.classList.toggle('hidden', !isSelected);
+        });
+      }
+
       document.addEventListener('click', (e) => {
         if (!e.target.closest('[data-dropdown]')) {
           closeAllCustomDropdowns();
@@ -3851,7 +4115,44 @@
       });
 
       // --- NAVIGATION ---
+      function canManageUserPage(snapshot = PosRuntime?.getStateSnapshot()) {
+        return snapshot?.authenticated && ['Pemilik', 'Admin'].includes(snapshot.role);
+      }
+
+      function updateUserManagementNavigation(snapshot = PosRuntime?.getStateSnapshot()) {
+        const canManageUsers = canManageUserPage(snapshot);
+        const isOwner = snapshot?.authenticated && snapshot.role === 'Pemilik';
+        const ownerId = isOwner ? snapshot.user.id : null;
+        if (ownerManagedOutletsOwnerId !== ownerId) {
+          ownerManagedOutlets = null;
+          ownerManagedOutletsOwnerId = ownerId;
+          ownerOutletsRequest = null;
+          ownerOutletsRequestOwnerId = null;
+        }
+        document.querySelectorAll('[data-user-management-only]').forEach((item) => {
+          item.classList.toggle('hidden', !canManageUsers);
+        });
+        document.querySelectorAll('[data-owner-only]').forEach((item) => {
+          item.hidden = !isOwner;
+        });
+        document.querySelectorAll('[data-admin-only]').forEach((item) => {
+          item.hidden = !snapshot?.authenticated || snapshot.role !== 'Admin';
+        });
+        if (!canManageUsers && currentPage === 'pengguna') navigateTo('kasir');
+        if (isOwner && currentPage === 'outlet' && !ownerManagedOutlets) {
+          void loadOwnerOutlets()
+            .then(() => {
+              if (currentPage === 'outlet') renderOutletPage();
+            })
+            .catch((error) =>
+              showToast(error.message || 'Daftar outlet milik Owner tidak dapat dimuat.'),
+            );
+        }
+      }
+
       function navigateTo(page) {
+        const snapshot = PosRuntime?.getStateSnapshot();
+        if (page === 'pengguna' && !canManageUserPage(snapshot)) page = 'kasir';
         currentPage = page;
         closeAllCustomDropdowns();
         document.body.classList.toggle('viewport-locked', page === 'kasir' || page === 'produk');
@@ -3876,6 +4177,7 @@
             ? 'mnav-btn flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-xl bg-blue-50/90 text-[#1447E6] font-bold transition-all whitespace-nowrap'
             : 'mnav-btn flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-xl text-slate-500 hover:text-[#0F2544] font-medium transition-all whitespace-nowrap';
         });
+        updateUserManagementNavigation();
 
         if (page === 'produk') renderProductsTable();
         if (page === 'riwayat-stok') reloadStockHistory();
@@ -3885,9 +4187,169 @@
         }
         if (page === 'shift') renderShiftPage();
         if (page === 'absen') renderAttendancePage();
-        if (page === 'outlet') renderOutletPage();
+        if (page === 'outlet') {
+          renderOutletPage();
+          if (snapshot?.role === 'Pemilik') {
+            void loadOwnerOutlets()
+              .then(() => {
+                if (currentPage === 'outlet') renderOutletPage();
+              })
+              .catch((error) =>
+                showToast(error.message || 'Daftar outlet milik Owner tidak dapat dimuat.'),
+              );
+          }
+        }
         if (page === 'pengguna') renderUsersPage();
+        if (page === 'profil') {
+          renderProfilePage(PosRuntime?.getStateSnapshot());
+          void PosRuntime?.loadProfile().catch((error) => {
+            const status = document.getElementById('profileSaveStatus');
+            if (status) status.textContent = error.message || 'Profil belum dapat dimuat.';
+          });
+        }
         updateAllCartUI();
+      }
+
+      function renderProfilePage(snapshot = PosRuntime?.getStateSnapshot(), force = false) {
+        const profile = snapshot?.profile || {};
+        const user = snapshot?.user || {};
+        const name = profile.name || user.name || '';
+        const identifier = profile.identifier || user.identifier || '';
+        const photo = profile.photo || null;
+        renderProfileIdentity(snapshot, profile, user, name, photo);
+        const nameInput = document.getElementById('profileNameInput');
+        const identifierInput = document.getElementById('profileIdentifierInput');
+        if (nameInput && (force || !profileDirty) && document.activeElement !== nameInput)
+          nameInput.value = name;
+        if (
+          identifierInput &&
+          (force || !profileDirty) &&
+          document.activeElement !== identifierInput
+        )
+          identifierInput.value = identifier;
+        const roleText = document.getElementById('profileRoleText');
+        const outletText = document.getElementById('profileOutletText');
+        if (roleText) roleText.textContent = profile.role || user.role || '-';
+        if (outletText)
+          outletText.textContent = profile.outletName || user.outletName || snapshot?.outlet || '-';
+
+        const image = document.getElementById('profilePhotoPreview');
+        const initial = document.getElementById('profilePhotoInitial');
+        if (image && initial) {
+          image.classList.toggle('hidden', !photo);
+          initial.classList.toggle('hidden', !!photo);
+          if (photo) image.src = photo;
+          else image.removeAttribute('src');
+          initial.textContent = (name.trim()[0] || 'U').toLocaleUpperCase('id-ID');
+        }
+      }
+
+      function renderProfileIdentity(
+        snapshot = PosRuntime?.getStateSnapshot(),
+        profile = snapshot?.profile || {},
+        user = snapshot?.user || {},
+        name = profile.name || user.name || '',
+        photo = profile.photo || null,
+      ) {
+        for (const id of ['headerProfileAvatar', 'menuProfileAvatar']) {
+          const avatar = document.getElementById(id);
+          if (!avatar) continue;
+          if (photo) {
+            const avatarImage = document.createElement('img');
+            avatarImage.src = photo;
+            avatarImage.alt = '';
+            avatarImage.className = 'h-full w-full rounded-[inherit] object-cover';
+            avatar.replaceChildren(avatarImage);
+          } else avatar.textContent = (name.trim()[0] || 'U').toLocaleUpperCase('id-ID');
+        }
+        const currentName = document.getElementById('menuProfileName');
+        const currentMeta = document.getElementById('menuProfileMeta');
+        if (currentName) currentName.textContent = name || 'Pengguna';
+        if (currentMeta)
+          currentMeta.textContent = [
+            profile.role || user.role,
+            profile.outletName || snapshot?.outlet,
+          ]
+            .filter(Boolean)
+            .join(' • ');
+      }
+
+      async function saveProfileFromPos(event) {
+        event.preventDefault();
+        const button = document.getElementById('profileSaveButton');
+        const status = document.getElementById('profileSaveStatus');
+        const photoInput = document.getElementById('profilePhotoInput');
+        if (button.disabled) return;
+        button.disabled = true;
+        status.textContent = 'Menyimpan profil...';
+        try {
+          await PosRuntime.saveProfile({
+            name: document.getElementById('profileNameInput').value,
+            identifier: document.getElementById('profileIdentifierInput').value,
+            photoFile: photoInput.files[0] || null,
+            removePhoto: photoInput.dataset.remove === 'true',
+          });
+          photoInput.value = '';
+          photoInput.dataset.remove = 'false';
+          document.getElementById('profilePhotoStatus').textContent = '';
+          profileDirty = false;
+          renderProfilePage(PosRuntime.getStateSnapshot(), true);
+          status.textContent = 'Profil berhasil disimpan.';
+        } catch (error) {
+          status.textContent = error.message || 'Profil belum dapat disimpan.';
+        } finally {
+          button.disabled = false;
+        }
+      }
+
+      function removeProfilePhoto() {
+        const input = document.getElementById('profilePhotoInput');
+        const image = document.getElementById('profilePhotoPreview');
+        const initial = document.getElementById('profilePhotoInitial');
+        const name = document.getElementById('profileNameInput').value;
+        input.value = '';
+        input.dataset.remove = 'true';
+        profileDirty = true;
+        image.classList.add('hidden');
+        image.removeAttribute('src');
+        initial.classList.remove('hidden');
+        initial.textContent = (name.trim()[0] || 'U').toLocaleUpperCase('id-ID');
+        document.getElementById('profilePhotoStatus').textContent =
+          'Foto akan dihapus setelah profil disimpan.';
+      }
+
+      function bindProfilePhotoInput() {
+        const input = document.getElementById('profilePhotoInput');
+        input.addEventListener('change', () => {
+          const file = input.files[0];
+          input.dataset.remove = 'false';
+          if (!file) return;
+          if (
+            !['image/jpeg', 'image/png', 'image/webp'].includes(file.type) ||
+            file.size <= 0 ||
+            file.size > 8 * 1024 * 1024
+          ) {
+            input.value = '';
+            document.getElementById('profilePhotoStatus').textContent =
+              'Pilih foto JPEG, PNG, atau WebP dengan ukuran maksimal 8 MB.';
+            return;
+          }
+          profileDirty = true;
+          const reader = new FileReader();
+          reader.onload = () => {
+            const image = document.getElementById('profilePhotoPreview');
+            image.src = reader.result;
+            image.classList.remove('hidden');
+            document.getElementById('profilePhotoInitial').classList.add('hidden');
+          };
+          reader.readAsDataURL(file);
+          document.getElementById('profilePhotoStatus').textContent =
+            'Foto dipilih. Simpan profil untuk mengunggah.';
+        });
+        for (const id of ['profileNameInput', 'profileIdentifierInput'])
+          document.getElementById(id).addEventListener('input', () => {
+            profileDirty = true;
+          });
       }
 
       function scheduleRuntimeRefresh(data) {
@@ -6018,6 +6480,8 @@
         const log = shiftCashLogs[index];
         if (!log) return;
         const isIn = log.type === 'in';
+        document.getElementById('userPreviewActions').hidden = true;
+        document.getElementById('shiftPreviewNoteLabel').textContent = 'Keterangan';
         document.getElementById('shiftPreviewLabel').textContent = 'Detail Pergerakan Kas';
         document.getElementById('shiftPreviewTitle').textContent = isIn
           ? 'Kas masuk'
@@ -6046,10 +6510,12 @@
         const s = shiftHistoryData.find((item) => item.id === shiftId);
         if (!s) return;
         const isOpen = s.endFull === 'Belum ditutup';
+        document.getElementById('userPreviewActions').hidden = true;
+        document.getElementById('shiftPreviewNoteLabel').textContent = 'Keterangan';
         document.getElementById('shiftPreviewLabel').textContent = isOpen
           ? 'Shift Aktif'
           : 'Detail Riwayat Shift';
-        document.getElementById('shiftPreviewTitle').textContent = `${s.opener} - ${s.id}`;
+        document.getElementById('shiftPreviewTitle').textContent = `${s.shiftName} - ${s.opener}`;
         document.getElementById('shiftPreviewSubtitle').textContent =
           `${s.startFull} – ${s.endFull}`;
         document.getElementById('shiftPreviewGrid').innerHTML = `
@@ -6080,7 +6546,10 @@
         const activeShift = window.PosRuntime?.getStateSnapshot?.().activeShift;
         const expectedCash = activeShift ? getExpectedCashTotal() : null;
         const statusEl = document.getElementById('activeShiftStatusText');
-        if (statusEl) statusEl.textContent = activeShift ? 'Shift aktif' : 'Belum ada shift';
+        if (statusEl)
+          statusEl.textContent = activeShift
+            ? `${activeShift.shiftName || 'Shift'} aktif`
+            : 'Belum ada shift';
         const actionButton = document.getElementById('shiftActionButton');
         if (actionButton) actionButton.textContent = activeShift ? 'Tutup shift' : 'Buka shift';
         const expEl = document.getElementById('shiftExpectedCashText');
@@ -6177,14 +6646,16 @@
                     return `
                 <div onclick="openShiftHistPreview('${s.id}')" class="cursor-pointer py-3 px-2 rounded-xl hover:bg-slate-50/90 transition-colors">
                   <div class="grid grid-cols-1 sm:grid-cols-12 gap-1.5 items-center">
-                    <div class="sm:col-span-3 flex items-center justify-between sm:block min-w-0">
-                      <span class="text-xs font-bold text-[#0F2544] truncate whitespace-nowrap">${s.startFull}</span>
-                      <span class="sm:hidden text-xs font-extrabold ${isOpen ? 'text-[#1447E6]' : 'text-[#0F2544]'} whitespace-nowrap">${isOpen ? 'Belum ditutup' : formatRupiah(s.diff)}</span>
+                    <div class="sm:col-span-2 min-w-0">
+                      <span class="block text-xs font-bold text-[#0F2544] truncate whitespace-nowrap">${escapeHtml(s.shiftName)}</span>
                     </div>
-                    <div class="hidden sm:block sm:col-span-3 text-xs ${isOpen ? 'font-bold text-[#1447E6]' : 'text-slate-600'} truncate whitespace-nowrap">${s.endFull}</div>
+                    <div class="sm:col-span-2 flex items-center justify-between sm:block min-w-0">
+                      <span class="text-xs text-slate-600 truncate whitespace-nowrap">${s.startFull}</span>
+                      <span class="sm:hidden text-[11px] font-semibold ${isOpen ? 'text-[#1447E6]' : 'text-slate-500'} whitespace-nowrap">${isOpen ? 'Aktif' : 'Selesai'}</span>
+                    </div>
+                    <div class="hidden sm:block sm:col-span-2 text-xs ${isOpen ? 'font-bold text-[#1447E6]' : 'text-slate-600'} truncate whitespace-nowrap">${s.endFull}</div>
                     <div class="sm:col-span-4 flex items-center justify-between sm:block min-w-0">
                       <span class="text-xs text-slate-600 truncate whitespace-nowrap">${s.staff}</span>
-                      <span class="sm:hidden text-[11px] text-slate-400 whitespace-nowrap">${isOpen ? 'Aktif' : 'Selesai'}</span>
                     </div>
                     <div class="hidden sm:block sm:col-span-2 text-right text-xs font-extrabold text-[#0F2544] whitespace-nowrap">
                       ${s.diff === null ? '—' : formatRupiah(s.diff)}
@@ -6535,6 +7006,36 @@
         }
       }
 
+      async function loadOwnerOutlets() {
+        const snapshot = PosRuntime?.getStateSnapshot();
+        const ownerId = snapshot?.role === 'Pemilik' ? snapshot.user?.id : null;
+        if (!ownerId) throw new Error('Hanya Pemilik yang dapat memuat daftar outlet.');
+        if (ownerManagedOutletsOwnerId !== ownerId) {
+          ownerManagedOutlets = null;
+          ownerManagedOutletsOwnerId = ownerId;
+          ownerOutletsRequest = null;
+          ownerOutletsRequestOwnerId = null;
+        }
+        if (ownerManagedOutlets) return ownerManagedOutlets;
+        if (!ownerOutletsRequest || ownerOutletsRequestOwnerId !== ownerId) {
+          ownerOutletsRequestOwnerId = ownerId;
+          const request = PosRuntime.getOwnedOutlets()
+            .then((outlets) => {
+              if (PosRuntime?.getStateSnapshot()?.user?.id === ownerId)
+                ownerManagedOutlets = outlets;
+              return outlets;
+            })
+            .finally(() => {
+              if (ownerOutletsRequest === request) {
+                ownerOutletsRequest = null;
+                ownerOutletsRequestOwnerId = null;
+              }
+            });
+          ownerOutletsRequest = request;
+        }
+        return ownerOutletsRequest;
+      }
+
       function renderOutletPage() {
         const runtimeState = window.PosRuntime?.getStateSnapshot();
         const outletOptions = runtimeState?.outlets || [];
@@ -6551,8 +7052,12 @@
           hidden.value = selected;
           const current = outletOptions.find((outlet) => outlet.id === selected);
           if (label) label.textContent = current?.name || 'Pilih outlet';
+          const availableOptions =
+            id === 'transferFrom'
+              ? outletOptions.filter((outlet) => outlet.id === activeId)
+              : outletOptions;
           menu.replaceChildren(
-            ...outletOptions.map((outlet) => {
+            ...availableOptions.map((outlet) => {
               const button = document.createElement('button');
               button.type = 'button';
               button.dataset.ddOption = outlet.id;
@@ -6574,26 +7079,63 @@
           document.getElementById('currentOutletLabel')?.textContent || 'Toko Utama';
         const outletStatusEl = document.getElementById('outletStatusList');
         if (outletStatusEl) {
-          const outlets = liveOutlets.map((outlet, index) => ({
-            name: outlet.name,
-            code: `OUT-${String(index + 1).padStart(2, '0')} - ${index ? 'Cabang' : 'Utama'}`,
-          }));
-          outletStatusEl.innerHTML =
-            outlets
-              .map((o) => {
-                const isActive = o.name === activeOutlet;
-                return `
-            <div onclick="if('${o.name}' !== '${activeOutlet}') switchOutlet()" class="cursor-pointer py-2.5 px-2 rounded-xl hover:bg-slate-50/90 transition-colors flex items-center justify-between gap-2">
-              <div class="min-w-0">
-                <p class="text-xs font-bold text-[#0F2544] truncate whitespace-nowrap">${o.name}</p>
-                <p class="text-[11px] text-slate-400 truncate whitespace-nowrap">${o.code}</p>
-              </div>
-              <span class="text-xs font-bold ${isActive ? 'text-[#1447E6]' : 'text-slate-400'} whitespace-nowrap shrink-0">${isActive ? 'Aktif' : 'Siaga'}</span>
-            </div>
-          `;
-              })
-              .join('') ||
-            '<p class="py-3 text-xs text-slate-400">Data outlet belum tersedia. Sinkronkan data terlebih dahulu.</p>';
+          const ownerView = runtimeState?.role === 'Pemilik' && ownerManagedOutlets;
+          const outlets = ownerView ? ownerManagedOutlets : liveOutlets;
+          outletStatusEl.replaceChildren();
+          if (!outlets.length) {
+            const empty = document.createElement('p');
+            empty.className = 'py-3 text-xs text-slate-400';
+            empty.textContent = 'Data outlet belum tersedia. Sinkronkan data terlebih dahulu.';
+            outletStatusEl.append(empty);
+          }
+          outlets.forEach((outlet, index) => {
+            const isActive = outlet.id ? outlet.id === activeId : outlet.name === activeOutlet;
+            const canSwitch = outletOptions.some((item) => item.id === outlet.id);
+            const row = document.createElement('div');
+            row.className = `py-2.5 px-2 rounded-xl flex items-center justify-between gap-2 ${
+              canSwitch && !isActive ? 'cursor-pointer hover:bg-slate-50/90 transition-colors' : ''
+            }`;
+            if (canSwitch && !isActive) row.onclick = () => switchOutlet();
+            const details = document.createElement('div');
+            details.className = 'min-w-0';
+            const name = document.createElement('p');
+            name.className = 'text-xs font-bold text-[#0F2544] truncate whitespace-nowrap';
+            name.textContent = outlet.name;
+            const code = document.createElement('p');
+            code.className = 'text-[11px] text-slate-400 truncate whitespace-nowrap';
+            code.textContent =
+              outlet.code ||
+              `OUT-${String(index + 1).padStart(2, '0')} - ${index ? 'Cabang' : 'Utama'}`;
+            details.append(name, code);
+            if (ownerView) {
+              const address = document.createElement('p');
+              address.className = 'mt-1 text-[11px] text-slate-500';
+              address.textContent = outlet.address || 'Alamat belum ditambahkan';
+              details.append(address);
+            }
+            const status = document.createElement('span');
+            status.className = `text-xs font-bold whitespace-nowrap shrink-0 ${
+              isActive ? 'text-[#1447E6]' : 'text-slate-400'
+            }`;
+            status.textContent = isActive ? 'Aktif' : canSwitch ? 'Siaga' : 'Terdaftar';
+            const actions = document.createElement('div');
+            actions.className = 'flex shrink-0 items-center gap-2';
+            actions.append(status);
+            if (ownerView) {
+              const editButton = document.createElement('button');
+              editButton.type = 'button';
+              editButton.className =
+                'rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-semibold text-[#0F2544] hover:bg-slate-50';
+              editButton.textContent = 'Edit detail';
+              editButton.onclick = (event) => {
+                event.stopPropagation();
+                openOutletEditDialog(outlet);
+              };
+              actions.append(editButton);
+            }
+            row.append(details, actions);
+            outletStatusEl.append(row);
+          });
         }
 
         const histEl = document.getElementById('transferHistoryList');
@@ -6641,12 +7183,15 @@
       }
 
       function openUserPreview(userId) {
+        const snapshot = window.PosRuntime?.getStateSnapshot?.();
+        if (!canManageUserPage(snapshot)) return;
         const u = usersList.find((item) => item.id === userId);
         if (!u) return;
+        selectedManagedUserId = u.id;
         document.getElementById('shiftPreviewLabel').textContent = 'Detail Hak Akses Pengguna';
         document.getElementById('shiftPreviewTitle').textContent = u.name;
         document.getElementById('shiftPreviewSubtitle').textContent =
-          `Peran: ${u.role}, Outlet ${window.PosRuntime?.getStateSnapshot?.().outlet || 'aktif'}`;
+          `Role: ${u.role}, Outlet utama: ${u.outletName || 'aktif'}`;
         document.getElementById('shiftPreviewGrid').innerHTML = `
         <div class="p-3 rounded-xl bg-slate-50 border border-slate-100 min-w-0">
           <p class="text-[11px] text-slate-400 whitespace-nowrap">Status Akun</p>
@@ -6657,8 +7202,89 @@
           <p class="font-bold text-[#0F2544] mt-0.5 whitespace-nowrap">${u.twoFa === 'Aktif' ? 'Aktif' : 'Belum aktif'}</p>
         </div>
       `;
+        document.getElementById('shiftPreviewNoteLabel').textContent = 'Role';
         document.getElementById('shiftPreviewNote').textContent = u.scope;
+        document.getElementById('userPreviewActions').hidden = false;
+        document.getElementById('userResetPasswordButton').hidden =
+          u.id === snapshot.user?.id || (snapshot.role === 'Admin' && u.role === 'Pemilik');
+        const canEditOutletAccess = canManageUserOutletAccess(u, snapshot);
+        document.getElementById('userOutletAccessButton').hidden = !canEditOutletAccess;
+        document
+          .getElementById('userPreviewActions')
+          .classList.toggle(
+            'grid-cols-1',
+            !canEditOutletAccess || document.getElementById('userResetPasswordButton').hidden,
+          );
+        document
+          .getElementById('userPreviewActions')
+          .classList.toggle(
+            'grid-cols-2',
+            canEditOutletAccess && !document.getElementById('userResetPasswordButton').hidden,
+          );
         document.getElementById('shiftPreviewModal')?.classList.remove('hidden');
+      }
+
+      function canManageUserOutletAccess(user, snapshot = PosRuntime?.getStateSnapshot?.()) {
+        return (
+          !!snapshot?.authenticated &&
+          !!user &&
+          user.id !== snapshot.user?.id &&
+          (snapshot.role === 'Pemilik'
+            ? user.role !== 'Pemilik'
+            : snapshot.role === 'Admin' && user.role === 'Kasir')
+        );
+      }
+
+      function openUserPasswordDialog() {
+        const snapshot = window.PosRuntime?.getStateSnapshot?.();
+        const user = usersList.find((item) => item.id === selectedManagedUserId);
+        if (
+          !canManageUserPage(snapshot) ||
+          !user ||
+          user.id === snapshot.user?.id ||
+          (snapshot.role === 'Admin' && user.role === 'Pemilik')
+        )
+          return;
+        closeModal('shiftPreviewModal');
+        openActionDialog(
+          `Atur password — ${user.name}`,
+          [
+            { name: 'newPassword', label: 'Password baru (min. 10 karakter)', type: 'password' },
+            { name: 'confirmPassword', label: 'Konfirmasi password baru', type: 'password' },
+          ],
+          (value) => PosRuntime.resetUserPassword(user.id, value),
+        );
+      }
+
+      async function openUserOutletAccessDialog() {
+        const snapshot = window.PosRuntime?.getStateSnapshot?.();
+        const user = usersList.find((item) => item.id === selectedManagedUserId);
+        if (!canManageUserOutletAccess(user, snapshot)) return;
+        closeModal('shiftPreviewModal');
+        try {
+          const access = await PosRuntime.getUserOutletAccess();
+          const accessUser = access.users.find((item) => item.id === user.id);
+          if (!accessUser) throw new Error('Akun tidak ditemukan pada outlet yang dapat dikelola.');
+          openActionDialog(
+            `Akses outlet — ${user.name}`,
+            [
+              {
+                name: 'storeIds',
+                label: 'Outlet yang dapat diakses',
+                type: 'multiselect',
+                options: access.stores.map((outlet) => ({
+                  value: outlet.id,
+                  label: outlet.name,
+                })),
+                value: accessUser.storeIds.map(String),
+                lockedValues: [String(accessUser.outletId)],
+              },
+            ],
+            (value) => PosRuntime.updateUserOutletAccess(user.id, value.storeIds),
+          );
+        } catch (error) {
+          showToast(error.message || 'Akses outlet tidak dapat dimuat.');
+        }
       }
 
       function renderUsersPage() {
@@ -6674,7 +7300,7 @@
             </div>
             <div class="min-w-0">
               <p class="text-xs sm:text-[13px] font-bold text-[#0F2544] truncate whitespace-nowrap">${u.name}</p>
-              <p class="text-[11px] text-slate-400 truncate whitespace-nowrap mt-0.5">Peran: ${u.role}</p>
+              <p class="text-[11px] text-slate-400 truncate whitespace-nowrap mt-0.5">Role: ${u.role}</p>
             </div>
           </div>
           <div class="flex items-center gap-2 shrink-0">
@@ -6741,6 +7367,161 @@
         link.download = `laporan-fastq-${period.toLocaleLowerCase('id-ID').replaceAll(' ', '-')}.csv`;
         link.click();
         setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+      }
+      function openTransactionExportDialog() {
+        if (PosRuntime?.getStateSnapshot()?.role !== 'Admin') return;
+        const today = new Date();
+        const dateValue = (date) =>
+          `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        const from = dateValue(new Date(today.getFullYear(), today.getMonth(), 1));
+        const to = dateValue(today);
+        openActionDialog(
+          'Ekspor riwayat transaksi',
+          [
+            { name: 'from', label: 'Dari tanggal', type: 'date', value: from },
+            { name: 'to', label: 'Sampai tanggal', type: 'date', value: to },
+          ],
+          async ({ from: startDate, to: endDate }) => {
+            const sales = await PosRuntime.exportSalesHistory(startDate, endDate);
+            const csvCell = (value) => {
+              const text = String(value ?? '');
+              const safeText = /^[\t\r ]*[=+\-@]/.test(text) ? `'${text}` : text;
+              return `"${safeText.replace(/"/g, '""')}"`;
+            };
+            const records = sales.map((sale) => [
+              sale.number || sale.id,
+              new Date(sale.at).toLocaleString('id-ID'),
+              sale.cashier,
+              sale.status,
+              (sale.payments || []).map((payment) => payment.method).join(' + '),
+              (sale.items || [])
+                .map((item) => `${item.name || 'Produk'} (${Number(item.qty) || 0})`)
+                .join('; '),
+              sale.subtotal,
+              sale.discount,
+              sale.tax,
+              sale.service,
+              sale.total,
+              sale.outstanding,
+              (sale.refunds || []).reduce(
+                (total, refund) => total + (Number(refund.amount) || 0),
+                0,
+              ),
+            ]);
+            const headers = [
+              'Nomor transaksi',
+              'Waktu',
+              'Kasir',
+              'Status',
+              'Metode pembayaran',
+              'Produk',
+              'Subtotal',
+              'Diskon',
+              'Pajak',
+              'Layanan',
+              'Total',
+              'Sisa piutang',
+              'Total refund',
+            ];
+            const csv = [headers, ...records].map((row) => row.map(csvCell).join(',')).join('\r\n');
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(
+              new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8' }),
+            );
+            link.download = `riwayat-transaksi-${startDate}-${endDate}.csv`;
+            link.click();
+            setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+            showToast(
+              sales.length
+                ? `${sales.length} transaksi berhasil diekspor.`
+                : 'Tidak ada transaksi pada rentang tanggal tersebut.',
+            );
+          },
+        );
+      }
+      function openAttendanceExportDialog() {
+        const snapshot = PosRuntime?.getStateSnapshot();
+        if (snapshot?.role !== 'Admin') return;
+        const today = new Date();
+        const dateValue = (date) =>
+          `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        const from = dateValue(new Date(today.getFullYear(), today.getMonth(), 1));
+        const to = dateValue(today);
+        const staffById = new Map();
+        usersList
+          .filter((user) => user.outletId === snapshot.outletId)
+          .forEach((user) => {
+            if (user.id && user.name) staffById.set(user.id, user.name);
+          });
+        attendanceLogs.forEach((record) => {
+          if (record.outletId === snapshot.outletId && record.userId && record.name) {
+            staffById.set(record.userId, record.name);
+          }
+        });
+        openActionDialog(
+          'Ekspor riwayat kehadiran',
+          [
+            {
+              name: 'userId',
+              label: 'Staf',
+              value: 'all',
+              options: [
+                { value: 'all', label: 'Semua staf' },
+                ...[...staffById.entries()]
+                  .sort((a, b) => a[1].localeCompare(b[1], 'id'))
+                  .map(([value, label]) => ({ value, label })),
+              ],
+              customDropdown: true,
+            },
+            { name: 'from', label: 'Dari tanggal', type: 'date', value: from },
+            { name: 'to', label: 'Sampai tanggal', type: 'date', value: to },
+          ],
+          async ({ userId, from: startDate, to: endDate }) => {
+            const records = await PosRuntime.exportAttendanceHistory(startDate, endDate, userId);
+            const csvCell = (value) => {
+              const text = String(value ?? '');
+              const safeText = /^[\t\r ]*[=+\-@]/.test(text) ? `'${text}` : text;
+              return `"${safeText.replace(/"/g, '""')}"`;
+            };
+            const formatLocation = (location) =>
+              location &&
+              Number.isFinite(Number(location.latitude)) &&
+              Number.isFinite(Number(location.longitude))
+                ? `${location.latitude}, ${location.longitude}`
+                : '';
+            const rows = records.map((record) => [
+              record.userId,
+              record.userName,
+              record.workDate,
+              record.checkIn ? new Date(record.checkIn).toLocaleTimeString('id-ID') : '',
+              record.checkOut ? new Date(record.checkOut).toLocaleTimeString('id-ID') : '',
+              formatLocation(record.checkInLocation),
+              formatLocation(record.checkOutLocation),
+            ]);
+            const headers = [
+              'ID staf',
+              'Nama staf',
+              'Tanggal kerja',
+              'Waktu masuk',
+              'Waktu pulang',
+              'Lokasi masuk',
+              'Lokasi pulang',
+            ];
+            const csv = [headers, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n');
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(
+              new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8' }),
+            );
+            link.download = `riwayat-kehadiran-${startDate}-${endDate}.csv`;
+            link.click();
+            setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+            showToast(
+              records.length
+                ? `${records.length} catatan kehadiran diekspor.`
+                : 'Tidak ada catatan kehadiran pada filter tersebut.',
+            );
+          },
+        );
       }
 
       function refreshPosFromRuntime(data = PosRuntime?.getStateSnapshot()) {
@@ -6836,6 +7617,7 @@
           issuePanel.dataset.open = 'false';
           issueButton?.setAttribute('aria-expanded', 'false');
         }
+        updateUserManagementNavigation(data);
         if (!data?.authenticated) return;
         products = data.products || [];
         categories = [...new Set(products.map((p) => p.category || 'Lainnya'))];
@@ -6865,8 +7647,13 @@
         });
         const userLabel = document.getElementById('designCurrentUser');
         if (userLabel) userLabel.textContent = data.currentUser || data.role;
+        renderProfileIdentity(data);
+        if (currentPage === 'profil' && !profileDirty) renderProfilePage(data);
         const roleLabel = document.getElementById('roleLabel');
         if (roleLabel) roleLabel.textContent = data.role;
+        const transactionExportButton = document.getElementById('exportTransactionHistoryButton');
+        transactionExportButton?.classList.toggle('hidden', data.role !== 'Admin');
+        transactionExportButton?.classList.toggle('inline-flex', data.role === 'Admin');
         transactions = (data.sales || [])
           .map((s) => ({
             saleId: s.id,
@@ -6957,6 +7744,7 @@
         usersList = data.users || [];
         shiftHistoryData = (data.shifts || []).map((x) => ({
           ...x,
+          shiftName: x.shiftName || 'Shift',
           dateIso: (x.openedAt || '').slice(0, 10),
           startFull: new Date(x.openedAt || x.startedAt || Date.now()).toLocaleString('id-ID'),
           endFull: x.closedAt ? new Date(x.closedAt).toLocaleString('id-ID') : 'Belum ditutup',
@@ -7294,20 +8082,62 @@
 
       function openActionDialog(title, fields, onSubmit) {
         document.getElementById('designActionDialog')?.remove();
+        const escapeHtml = (value) =>
+          String(value ?? '').replace(
+            /[&<>"']/g,
+            (character) =>
+              ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character],
+          );
         const overlay = document.createElement('div');
         overlay.id = 'designActionDialog';
         overlay.className =
           'fixed inset-0 z-[210] bg-slate-900/40 backdrop-blur-[2px] flex items-center justify-center p-4';
         const rows = fields
           .map((field) => {
-            if (field.options)
-              return `<label class="block text-xs font-semibold text-slate-600">${field.label}<select name="${field.name}" ${field.required === false ? '' : 'required'} class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm">${field.options
+            const options = (field.options || []).map((option) => ({
+              value: String(typeof option === 'string' ? option : option.value),
+              label: String(typeof option === 'string' ? option : option.label),
+            }));
+            if (field.type === 'multiselect') {
+              const id = `action_${field.name}`;
+              const selected = new Set((field.value || []).map(String));
+              const labels = options
+                .filter((option) => selected.has(option.value))
+                .map((option) => option.label);
+              const label =
+                labels.length === 0
+                  ? 'Pilih outlet'
+                  : labels.length === 1
+                    ? labels[0]
+                    : `${labels.length} outlet dipilih`;
+              return `<div class="block text-xs font-semibold text-slate-600">${escapeHtml(field.label)}<div class="relative mt-1" data-dropdown="${id}"><input type="hidden" id="${id}" name="${escapeHtml(field.name)}" value="${escapeHtml([...selected].join(','))}"><button type="button" onclick="toggleCustomDropdown('${id}')" class="w-full flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-sm font-medium text-[#0F2544]"><span data-dd-label class="truncate">${escapeHtml(label)}</span><i data-dd-caret class="ph ph-caret-down text-slate-400 transition-transform"></i></button><div data-dd-menu class="hidden absolute left-0 right-0 top-full z-[220] mt-1 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg">${options
                 .map((option) => {
-                  const value = typeof option === 'string' ? option : option.value,
-                    label = typeof option === 'string' ? option : option.label;
-                  return `<option value="${value}">${label}</option>`;
+                  const isSelected = selected.has(option.value);
+                  const locked = (field.lockedValues || []).includes(option.value);
+                  return `<button type="button" data-action-multi-option="${escapeHtml(option.value)}" data-label="${escapeHtml(option.label)}" data-locked="${locked}" class="w-full px-3 py-2 text-left text-xs ${isSelected ? 'bg-blue-50/70 text-[#1447E6] font-bold' : 'text-[#0F2544] font-medium'} flex items-center justify-between gap-2"><span class="truncate">${escapeHtml(option.label)}</span><i data-dd-check class="ph-bold ph-check text-xs text-[#1447E6] shrink-0 ${isSelected ? '' : 'hidden'}"></i></button>`;
                 })
+                .join('')}</div></div></div>`;
+            }
+            if (field.options && field.customDropdown) {
+              const id = `action_${field.name}`;
+              const selectedValue = String(field.value ?? options[0]?.value ?? '');
+              const selectedOption = options.find((option) => option.value === selectedValue);
+              return `<div class="block text-xs font-semibold text-slate-600">${escapeHtml(field.label)}<div class="relative mt-1" data-dropdown="${id}"><input type="hidden" id="${id}" name="${escapeHtml(field.name)}" value="${escapeHtml(selectedValue)}"><button type="button" onclick="toggleCustomDropdown('${id}')" class="w-full flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-sm font-medium text-[#0F2544]"><span data-dd-label class="truncate">${escapeHtml(selectedOption?.label || '')}</span><i data-dd-caret class="ph ph-caret-down text-slate-400 transition-transform"></i></button><div data-dd-menu class="hidden absolute left-0 right-0 top-full z-[220] mt-1 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg">${options
+                .map((option) => {
+                  const isSelected = option.value === selectedValue;
+                  return `<button type="button" data-action-select="${escapeHtml(option.value)}" data-label="${escapeHtml(option.label)}" class="w-full px-3 py-2 text-left text-xs ${isSelected ? 'bg-blue-50/70 text-[#1447E6] font-bold' : 'text-[#0F2544] font-medium'} flex items-center justify-between gap-2"><span class="truncate">${escapeHtml(option.label)}</span><i data-dd-check class="ph-bold ph-check text-xs text-[#1447E6] shrink-0 ${isSelected ? '' : 'hidden'}"></i></button>`;
+                })
+                .join('')}</div></div></div>`;
+            }
+            if (field.options)
+              return `<label class="block text-xs font-semibold text-slate-600">${escapeHtml(field.label)}<select name="${escapeHtml(field.name)}" ${field.required === false ? '' : 'required'} class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm">${options
+                .map(
+                  (option) =>
+                    `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`,
+                )
                 .join('')}</select></label>`;
+            if (field.type === 'textarea')
+              return `<label class="block text-xs font-semibold text-slate-600">${escapeHtml(field.label)}<textarea name="${escapeHtml(field.name)}" ${field.required === false ? '' : 'required'} ${field.maxLength ? `maxlength="${field.maxLength}"` : ''} rows="3" class="mt-1 w-full resize-y rounded-xl border border-slate-200 px-3 py-2.5 text-sm">${escapeHtml(field.value)}</textarea></label>`;
             const numeric = field.type === 'number',
               type = numeric ? 'text' : field.type || 'text',
               mode = numeric ? field.inputmode || 'decimal' : field.inputmode;
@@ -7315,10 +8145,27 @@
               field.value != null
                 ? `value="${String(field.value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])}"`
                 : '';
-            return `<label class="block text-xs font-semibold text-slate-600">${field.label}<input name="${field.name}" type="${type}" ${field.required === false ? '' : 'required'} ${value} ${mode ? `inputmode="${mode}"` : ''} ${numeric ? 'data-number-format' : ''} class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"></label>`;
+            return `<label class="block text-xs font-semibold text-slate-600">${escapeHtml(field.label)}<input name="${escapeHtml(field.name)}" type="${type}" ${field.required === false ? '' : 'required'} ${field.maxLength ? `maxlength="${field.maxLength}"` : ''} ${value} ${mode ? `inputmode="${mode}"` : ''} ${numeric ? 'data-number-format' : ''} class="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"></label>`;
           })
           .join('');
-        overlay.innerHTML = `<section class="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"><div class="mb-4 flex items-center justify-between"><h2 class="text-base font-extrabold text-[#0F2544]">${title}</h2><button type="button" data-close class="h-8 w-8 rounded-lg border border-slate-200">×</button></div><form class="space-y-3" novalidate>${rows}<p class="min-h-4 text-xs text-red-600" role="alert"></p><div class="flex gap-2"><button type="button" data-close class="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold">Batal</button><button type="submit" class="flex-1 rounded-xl bg-[#1447E6] px-3 py-2 text-sm font-bold text-white">Simpan</button></div></form></section>`;
+        overlay.innerHTML = `<section class="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"><div class="mb-4 flex items-center justify-between"><h2 class="text-base font-extrabold text-[#0F2544]">${escapeHtml(title)}</h2><button type="button" data-close class="h-8 w-8 rounded-lg border border-slate-200">×</button></div><form class="space-y-3" novalidate>${rows}<p class="min-h-4 text-xs text-red-600" role="alert"></p><div class="flex gap-2"><button type="button" data-close class="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold">Batal</button><button type="submit" class="flex-1 rounded-xl bg-[#1447E6] px-3 py-2 text-sm font-bold text-white">Simpan</button></div></form></section>`;
+        overlay.querySelectorAll('[data-action-select]').forEach((button) => {
+          button.addEventListener('click', () =>
+            selectCustomDropdown(
+              button.closest('[data-dropdown]')?.dataset.dropdown,
+              button.dataset.actionSelect,
+              button.dataset.label,
+            ),
+          );
+        });
+        overlay.querySelectorAll('[data-action-multi-option]').forEach((button) => {
+          button.addEventListener('click', () =>
+            toggleActionMultiOption(
+              button.closest('[data-dropdown]')?.dataset.dropdown,
+              button.dataset.actionMultiOption,
+            ),
+          );
+        });
         overlay
           .querySelectorAll('[data-close]')
           .forEach((button) => (button.onclick = () => overlay.remove()));
@@ -7341,9 +8188,14 @@
             return;
           }
           alert.textContent = '';
-          for (const field of fields)
+          for (const field of fields) {
             if (field.type === 'number')
               values[field.name] = parseFormattedNumber(values[field.name]);
+            if (field.type === 'multiselect')
+              values[field.name] = String(values[field.name] || '')
+                .split(',')
+                .filter(Boolean);
+          }
           const idleButtonLabel = button.textContent;
           button.disabled = true;
           button.setAttribute('aria-busy', 'true');
@@ -7366,12 +8218,17 @@
         };
         document.body.append(overlay);
         bindNumberFormatting(overlay);
-        overlay.querySelector('input')?.focus();
+        overlay.querySelector('input:not([type="hidden"])')?.focus();
       }
       function openShiftOpenDialog() {
         openActionDialog(
           'Buka shift',
           [
+            {
+              name: 'shiftName',
+              label: 'Nama shift (contoh: Shift 1)',
+              maxLength: 40,
+            },
             {
               name: 'amount',
               label: 'Modal awal (Rp)',
@@ -7381,7 +8238,7 @@
             },
           ],
           (value) => {
-            PosRuntime.openCashShift(Number(value.amount));
+            PosRuntime.openCashShift(Number(value.amount), value.shiftName);
             return PosRuntime.flushPendingWrites();
           },
         );
@@ -7396,19 +8253,91 @@
           },
         );
       }
-      function openOutletSwitcherDialog() {
-        const options = PosRuntime.getStateSnapshot().outlets || [];
-        if (options.length < 2) return showToast('Akun ini hanya memiliki satu outlet.');
+      async function openOutletSwitcherDialog() {
+        try {
+          const snapshot = PosRuntime.getStateSnapshot();
+          let options = snapshot.outlets || [];
+          if (navigator.onLine)
+            options =
+              snapshot.role === 'Pemilik'
+                ? await PosRuntime.getOwnedOutlets()
+                : await PosRuntime.getAccessibleOutlets();
+          if (options.length < 2) return showToast('Akun ini hanya memiliki satu outlet.');
+          openActionDialog(
+            'Pindah outlet',
+            [
+              {
+                name: 'outlet',
+                label: 'Outlet',
+                options: options.map((x) => ({ value: x.id, label: x.name })),
+                customDropdown: true,
+              },
+            ],
+            (value) => {
+              const outlet = options.find((item) => item.id === value.outlet);
+              if (!outlet) throw new Error('Outlet tidak ditemukan.');
+              return PosRuntime.setActiveOutlet(value.outlet, outlet);
+            },
+          );
+        } catch (error) {
+          showToast(error.message || 'Daftar outlet tidak dapat dimuat.');
+        }
+      }
+      function openOutletCreationDialog() {
+        if (PosRuntime?.getStateSnapshot()?.role !== 'Pemilik') {
+          showToast('Hanya Pemilik yang dapat membuat outlet.');
+          return;
+        }
         openActionDialog(
-          'Pindah outlet',
+          'Tambah outlet',
           [
+            { name: 'name', label: 'Nama outlet', maxLength: 100 },
             {
-              name: 'outlet',
-              label: 'Outlet',
-              options: options.map((x) => ({ value: x.id, label: x.name })),
+              name: 'address',
+              label: 'Alamat outlet',
+              type: 'textarea',
+              required: false,
+              maxLength: 500,
             },
           ],
-          (value) => PosRuntime.setActiveOutlet(value.outlet),
+          async (value) => {
+            const outlets = await loadOwnerOutlets();
+            const created = await PosRuntime.createOutlet(value.name, value.address);
+            if (!outlets.some((outlet) => outlet.id === created.id))
+              ownerManagedOutlets = [...outlets, created];
+            if (currentPage === 'outlet') renderOutletPage();
+          },
+        );
+      }
+      function openOutletEditDialog(outlet) {
+        if (PosRuntime?.getStateSnapshot()?.role !== 'Pemilik') {
+          showToast('Hanya Pemilik yang dapat mengubah detail outlet.');
+          return;
+        }
+        openActionDialog(
+          'Edit detail outlet',
+          [
+            { name: 'name', label: 'Nama outlet', value: outlet.name, maxLength: 100 },
+            {
+              name: 'address',
+              label: 'Alamat outlet',
+              type: 'textarea',
+              required: false,
+              value: outlet.address || '',
+              maxLength: 500,
+            },
+          ],
+          async (value) => {
+            const updated = await PosRuntime.updateOutletDetails(
+              outlet.id,
+              value.name,
+              value.address,
+            );
+            ownerManagedOutlets = (ownerManagedOutlets || []).map((item) =>
+              item.id === updated.id ? updated : item,
+            );
+            if (currentPage === 'outlet') renderOutletPage();
+          },
         );
       }
       function openUserCreationDialog() {
@@ -7416,12 +8345,29 @@
           'Tambah pengguna',
           [
             { name: 'name', label: 'Nama' },
-            { name: 'role', label: 'Peran', options: ['Kasir', 'Manajer', 'Admin', 'Pemilik'] },
+            {
+              name: 'role',
+              label: 'Role',
+              value: 'Kasir',
+              options: ['Kasir', 'Manajer', 'Admin', 'Pemilik'],
+              customDropdown: true,
+            },
             { name: 'identifier', label: 'Email atau nomor HP' },
             { name: 'password', label: 'Password login (min. 10 karakter)', type: 'password' },
             { name: 'pin', label: 'PIN kasir (4–8 angka)', type: 'password' },
           ],
           (value) => PosRuntime.createUser(value),
+        );
+      }
+      function openPasswordChangeDialog() {
+        openActionDialog(
+          'Ganti password',
+          [
+            { name: 'currentPassword', label: 'Password saat ini', type: 'password' },
+            { name: 'newPassword', label: 'Password baru (min. 10 karakter)', type: 'password' },
+            { name: 'confirmPassword', label: 'Konfirmasi password baru', type: 'password' },
+          ],
+          (value) => PosRuntime.changePassword(value),
         );
       }
       function openRefundDialog(id) {
@@ -7447,6 +8393,7 @@
 
       window.addEventListener('DOMContentLoaded', async () => {
         initProductOrbitGestures();
+        bindProfilePhotoInput();
         try {
           const { createPosRuntime } = await import('./pos-runtime.js');
           PosRuntime = await createPosRuntime({

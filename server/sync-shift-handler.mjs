@@ -4,6 +4,11 @@ export async function applyShiftEvent({ client, event, scope, actor, deviceId, i
     s.physicalCash ??= s.actualCash;
     if (!isUuid(s.id) || !Number.isSafeInteger(s.openingCash) || s.openingCash < 0)
       throw Object.assign(new Error('Data shift tidak valid.'), { status: 400 });
+    if (s.shiftName != null) {
+      if (typeof s.shiftName !== 'string' || !s.shiftName.trim() || s.shiftName.trim().length > 40)
+        throw Object.assign(new Error('Nama shift tidak valid.'), { status: 400 });
+      s.shiftName = s.shiftName.trim();
+    }
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`fastq-shift:${scope}`]);
     const opening = await client.query(
       'SELECT user_id,opening_cash_rupiah,metadata FROM shifts WHERE id=$1 AND outlet_id=$2 FOR UPDATE',
@@ -126,6 +131,7 @@ export async function applyShiftEvent({ client, event, scope, actor, deviceId, i
       ...openingMetadata,
       cashier: openingMetadata.cashier || s.cashier || actor.name,
       openedBy: openingMetadata.openedBy || s.openedBy || s.cashier || actor.name,
+      shiftName: openingMetadata.shiftName || s.shiftName || null,
       openedById:
         openingMetadata.openedById || s.openedById || opening.rows[0]?.user_id || actor.id,
       closedBy: s.closedAt ? actor.name : openingMetadata.closedBy || null,
@@ -171,6 +177,7 @@ export async function applyShiftEvent({ client, event, scope, actor, deviceId, i
         difference: saved.difference_rupiah === null ? null : Number(saved.difference_rupiah),
         cashier: saved.metadata?.cashier || s.cashier,
         openedBy: saved.metadata?.openedBy || s.openedBy || s.cashier,
+        shiftName: saved.metadata?.shiftName || s.shiftName || null,
         openedById: saved.metadata?.openedById || saved.user_id,
         closedBy: saved.metadata?.closedBy || s.closedBy || null,
         cashiers: saved.metadata?.cashiers || s.cashiers || [],

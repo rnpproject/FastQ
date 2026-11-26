@@ -75,6 +75,7 @@ test('shift handler accepts legacy actualCash and persists it as physical cash',
         closedAt: '2026-11-25T11:00:00Z',
         openingCash: 100,
         actualCash: 125,
+        shiftName: ' Shift 2 ',
         openedById: userId,
       },
     },
@@ -85,4 +86,33 @@ test('shift handler accepts legacy actualCash and persists it as physical cash',
   });
   assert.equal(savedShiftParams[7], 125);
   assert.equal(savedShiftParams[8], -75);
+  assert.equal(savedShiftParams[9].shiftName, 'Shift 2');
+});
+
+test('shift handler rejects an invalid display name before database access', async () => {
+  let queries = 0;
+  await assert.rejects(
+    applyShiftEvent({
+      client: {
+        query: async () => {
+          queries++;
+          return { rows: [], rowCount: 0 };
+        },
+      },
+      event: {
+        type: 'shift.upsert',
+        payload: {
+          id: '00000000-0000-4000-8000-000000000010',
+          openingCash: 0,
+          shiftName: ' '.repeat(41),
+        },
+      },
+      scope: '00000000-0000-4000-8000-000000000001',
+      actor: { id: '00000000-0000-4000-8000-000000000002', role: 'Admin' },
+      deviceId: '00000000-0000-4000-8000-000000000003',
+      isUuid: (value) => typeof value === 'string' && /^[0-9a-f-]{36}$/i.test(value),
+    }),
+    (error) => error.status === 400,
+  );
+  assert.equal(queries, 0);
 });

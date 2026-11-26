@@ -44,6 +44,11 @@ type DashboardData = {
   trend: TrendDay[];
   sales: DashboardSale[];
 };
+type StoreAccessData = {
+  stores: Array<{ id: string; name: string; code: string; address: string }>;
+  users: Array<{ id: string; name: string; role: string; storeIds: string[] }>;
+};
+type SessionUser = { id: string; name: string; role: string };
 type Preview = {
   subtitle: string;
   title: string;
@@ -340,6 +345,7 @@ function DetailPreviewModal({
 export default function OwnerDashboard() {
   const [authenticated, setAuthenticated] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
   const [login, setLogin] = useState({ identifier: '', password: '', totp: '' });
   const [requiresTotp, setRequiresTotp] = useState(false);
 
@@ -358,6 +364,15 @@ export default function OwnerDashboard() {
   const dashboardRequestId = useRef(0);
   const [signingOut, setSigningOut] = useState(false);
   const [previewItem, setPreviewItem] = useState<Preview | null>(null);
+  const [storeAccess, setStoreAccess] = useState<StoreAccessData | null>(null);
+  const [storeManagementOpen, setStoreManagementOpen] = useState(false);
+  const [newStoreName, setNewStoreName] = useState('');
+  const [newStoreAddress, setNewStoreAddress] = useState('');
+  const [editingStoreId, setEditingStoreId] = useState<string | null>(null);
+  const [editStoreName, setEditStoreName] = useState('');
+  const [editStoreAddress, setEditStoreAddress] = useState('');
+  const [managementError, setManagementError] = useState('');
+  const [managementBusy, setManagementBusy] = useState(false);
 
   useEffect(() => {
     setRequiresTotp(false);
@@ -367,8 +382,12 @@ export default function OwnerDashboard() {
   useEffect(() => {
     let active = true;
     fetch(`${API_BASE}/api/auth/session`, { credentials: 'include' })
-      .then((res) => {
-        if (active) setAuthenticated(res.ok);
+      .then(async (res) => {
+        const body = await res.json();
+        if (active) {
+          setAuthenticated(res.ok);
+          setSessionUser(res.ok ? body.user : null);
+        }
       })
       .catch(() => {
         if (active) setAuthenticated(false);
@@ -397,6 +416,7 @@ export default function OwnerDashboard() {
         setRequiresTotp(true);
         return;
       }
+      setSessionUser(body.user);
       setAuthenticated(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login gagal.');
@@ -451,11 +471,139 @@ export default function OwnerDashboard() {
     }
   }
 
+  async function loadStoreAccess() {
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/store-access`, {
+        credentials: 'include',
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'Akses toko tidak dapat dimuat.');
+      setStoreAccess(body);
+      setManagementError('');
+    } catch (err) {
+      setManagementError(err instanceof Error ? err.message : 'Akses toko tidak dapat dimuat.');
+    }
+  }
+
+  async function createStore(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setManagementBusy(true);
+    setManagementError('');
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/stores`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newStoreName, address: newStoreAddress }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'Toko tidak dapat dibuat.');
+      setNewStoreName('');
+      setNewStoreAddress('');
+      await Promise.all([loadStoreAccess(), loadDashboard()]);
+    } catch (err) {
+      setManagementError(err instanceof Error ? err.message : 'Toko tidak dapat dibuat.');
+    } finally {
+      setManagementBusy(false);
+    }
+  }
+
+  async function saveStoreDetails(event: FormEvent<HTMLFormElement>, storeId: string) {
+    event.preventDefault();
+    setManagementBusy(true);
+    setManagementError('');
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/stores`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          storeId,
+          name: editStoreName,
+          address: editStoreAddress,
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'Detail toko tidak dapat disimpan.');
+      setStoreAccess((current) =>
+        current
+          ? {
+              ...current,
+              stores: current.stores.map((store) => (store.id === storeId ? body.store : store)),
+            }
+          : current,
+      );
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              outlets: current.outlets.map((store) =>
+                store.id === storeId ? { ...store, name: body.store.name } : store,
+              ),
+            }
+          : current,
+      );
+      setEditingStoreId(null);
+      await loadDashboard();
+    } catch (err) {
+      setManagementError(err instanceof Error ? err.message : 'Detail toko tidak dapat disimpan.');
+    } finally {
+      setManagementBusy(false);
+    }
+  }
+
+  function updateSelectedStores(userId: string, storeIds: string[]) {
+    setStoreAccess((current) =>
+      current
+        ? {
+            ...current,
+            users: current.users.map((user) => (user.id === userId ? { ...user, storeIds } : user)),
+          }
+        : current,
+    );
+  }
+
+  async function saveStoreAccess(userId: string) {
+    const user = storeAccess?.users.find((item) => item.id === userId);
+    if (!user) return;
+    setManagementBusy(true);
+    setManagementError('');
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/store-access`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, storeIds: user.storeIds }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'Akses toko tidak dapat disimpan.');
+      setStoreAccess((current) =>
+        current
+          ? {
+              ...current,
+              users: current.users.map((item) =>
+                item.id === userId ? { ...item, storeIds: body.storeIds } : item,
+              ),
+            }
+          : current,
+      );
+    } catch (err) {
+      setManagementError(err instanceof Error ? err.message : 'Akses toko tidak dapat disimpan.');
+    } finally {
+      setManagementBusy(false);
+    }
+  }
+
   useEffect(() => {
     const controller = new AbortController();
     if (authenticated) void loadDashboard(controller.signal);
     return () => controller.abort();
   }, [authenticated, outlet, days]);
+
+  useEffect(() => {
+    if (authenticated && sessionUser?.role === 'Pemilik') void loadStoreAccess();
+    else setStoreAccess(null);
+  }, [authenticated, sessionUser?.role]);
 
   useEffect(() => {
     setListPages({ categories: 1, cashiers: 1, payments: 1, sales: 1, lowStock: 1 });
@@ -472,7 +620,9 @@ export default function OwnerDashboard() {
       });
       if (!response.ok) throw new Error('Tidak dapat keluar dari akun. Coba lagi.');
       setAuthenticated(false);
+      setSessionUser(null);
       setData(null);
+      setStoreAccess(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Tidak dapat keluar dari akun.');
     } finally {
@@ -787,6 +937,274 @@ export default function OwnerDashboard() {
 
       {/* Main Content Container */}
       <div className="max-w-5xl mx-auto px-4 sm:px-6 py-5 sm:py-8 space-y-6">
+        {sessionUser?.role === 'Pemilik' && (
+          <section className="space-y-3">
+            <h2>
+              <button
+                type="button"
+                aria-expanded={storeManagementOpen}
+                aria-controls="store-management-panel"
+                onClick={() => setStoreManagementOpen((open) => !open)}
+                className="flex w-full items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition-colors hover:bg-slate-50 sm:p-5"
+              >
+                <span className="min-w-0">
+                  <span className="block text-base font-semibold text-slate-900">
+                    Toko dan akses pengguna
+                  </span>
+                  <span className="mt-1 block text-sm font-normal text-slate-600">
+                    Kelola detail toko dan akses pengguna.
+                  </span>
+                </span>
+                <i
+                  className={`ph ${storeManagementOpen ? 'ph-caret-up' : 'ph-caret-down'} shrink-0 text-lg text-slate-500`}
+                  aria-hidden="true"
+                />
+              </button>
+            </h2>
+
+            <div
+              id="store-management-panel"
+              hidden={!storeManagementOpen}
+              className="space-y-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"
+            >
+              <form
+                onSubmit={createStore}
+                className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-4"
+              >
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-800">Tambah toko baru</h3>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Nama wajib diisi; alamat opsional.
+                  </p>
+                </div>
+                <div className="grid items-end gap-3 md:grid-cols-[minmax(12rem,1fr)_minmax(16rem,1.5fr)_auto]">
+                  <label
+                    className="block text-xs font-medium text-slate-600"
+                    htmlFor="new-store-name"
+                  >
+                    Nama toko
+                    <input
+                      id="new-store-name"
+                      value={newStoreName}
+                      onChange={(event) => setNewStoreName(event.target.value)}
+                      maxLength={100}
+                      required
+                      placeholder="Contoh: FastQ Cabang Utama"
+                      className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-[#1d4ed8] focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    />
+                  </label>
+                  <label
+                    className="block text-xs font-medium text-slate-600"
+                    htmlFor="new-store-address"
+                  >
+                    Alamat toko
+                    <textarea
+                      id="new-store-address"
+                      value={newStoreAddress}
+                      onChange={(event) => setNewStoreAddress(event.target.value)}
+                      maxLength={500}
+                      rows={1}
+                      placeholder="Alamat lengkap (opsional)"
+                      className="mt-1 block min-h-[42px] w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 focus:border-[#1d4ed8] focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={managementBusy}
+                    className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-lg bg-[#1d4ed8] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#1e40af] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <i className="ph ph-plus" aria-hidden="true" />
+                    Buat toko
+                  </button>
+                </div>
+              </form>
+
+              {managementError && (
+                <p
+                  className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
+                  role="alert"
+                >
+                  {managementError}
+                </p>
+              )}
+
+              {storeAccess ? (
+                <div className="grid gap-3 xl:grid-cols-2">
+                  <div className="space-y-2 rounded-xl bg-slate-50/70 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-800">Toko milik Anda</h3>
+                      </div>
+                      <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-slate-600">
+                        {storeAccess.stores.length}
+                      </span>
+                    </div>
+                    <ul className="space-y-1.5">
+                      {storeAccess.stores.map((store) => (
+                        <li
+                          key={store.id}
+                          className="rounded-lg border border-slate-200 bg-white p-2.5"
+                        >
+                          {editingStoreId === store.id ? (
+                            <form
+                              onSubmit={(event) => void saveStoreDetails(event, store.id)}
+                              className="space-y-2.5"
+                            >
+                              <label className="block text-xs font-medium text-slate-600">
+                                Nama toko
+                                <input
+                                  value={editStoreName}
+                                  onChange={(event) => setEditStoreName(event.target.value)}
+                                  maxLength={100}
+                                  required
+                                  className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-[#1d4ed8] focus:outline-none"
+                                />
+                              </label>
+                              <label className="block text-xs font-medium text-slate-600">
+                                Alamat toko
+                                <textarea
+                                  value={editStoreAddress}
+                                  onChange={(event) => setEditStoreAddress(event.target.value)}
+                                  maxLength={500}
+                                  rows={2}
+                                  className="mt-1 block w-full resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-[#1d4ed8] focus:outline-none"
+                                />
+                              </label>
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  type="button"
+                                  disabled={managementBusy}
+                                  onClick={() => setEditingStoreId(null)}
+                                  className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                                >
+                                  Batal
+                                </button>
+                                <button
+                                  type="submit"
+                                  disabled={managementBusy}
+                                  className="rounded-lg bg-[#1d4ed8] px-3 py-2 text-xs font-semibold text-white hover:bg-[#1e40af] disabled:opacity-50"
+                                >
+                                  Simpan detail
+                                </button>
+                              </div>
+                            </form>
+                          ) : (
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-slate-800">
+                                  {store.name}
+                                </p>
+                                <p className="mt-0.5 text-xs text-slate-500">Kode: {store.code}</p>
+                                <p className="mt-1 text-xs text-slate-600">
+                                  {store.address || 'Alamat belum ditambahkan'}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                disabled={managementBusy}
+                                onClick={() => {
+                                  setEditingStoreId(store.id);
+                                  setEditStoreName(store.name);
+                                  setEditStoreAddress(store.address || '');
+                                }}
+                                className="shrink-0 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                              >
+                                Edit
+                              </button>
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                      {!storeAccess.stores.length && (
+                        <li className="rounded-lg border border-dashed border-slate-300 px-3 py-4 text-center text-sm text-slate-500">
+                          Belum ada toko.
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+
+                  <div className="space-y-2 rounded-xl bg-slate-50/70 p-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-slate-800">Hak akses toko</h3>
+                    </div>
+                    <div className="space-y-2">
+                      {storeAccess.users
+                        .filter((user) => user.id !== sessionUser.id)
+                        .map((user) => (
+                          <div
+                            key={user.id}
+                            className="rounded-lg border border-slate-200 bg-white p-2.5"
+                          >
+                            <div className="mb-1.5 flex items-center justify-between gap-2">
+                              <span className="truncate text-sm font-medium text-slate-800">
+                                {user.name}
+                              </span>
+                              <span className="shrink-0 rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">
+                                {user.role}
+                              </span>
+                            </div>
+                            {user.role === 'Pemilik' ? (
+                              <p className="text-xs text-slate-600">
+                                Pemilik mengakses semua toko yang dimilikinya.
+                              </p>
+                            ) : (
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                                <label className="min-w-0 flex-1 text-xs text-slate-600">
+                                  Toko yang dapat diakses
+                                  <select
+                                    multiple
+                                    size={Math.min(3, Math.max(1, storeAccess.stores.length))}
+                                    value={user.storeIds}
+                                    disabled={managementBusy}
+                                    onChange={(event) =>
+                                      updateSelectedStores(
+                                        user.id,
+                                        Array.from(
+                                          event.currentTarget.selectedOptions,
+                                          (option) => option.value,
+                                        ),
+                                      )
+                                    }
+                                    className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm"
+                                  >
+                                    {storeAccess.stores.map((store) => (
+                                      <option key={store.id} value={store.id}>
+                                        {store.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <button
+                                  type="button"
+                                  disabled={managementBusy}
+                                  onClick={() => void saveStoreAccess(user.id)}
+                                  className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                                >
+                                  Simpan akses
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      {!storeAccess.users.some((user) => user.id !== sessionUser.id) && (
+                        <p className="rounded-lg border border-dashed border-slate-300 px-3 py-4 text-center text-sm text-slate-500">
+                          Belum ada pengguna lain.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                !managementError && (
+                  <p className="text-sm text-slate-500" role="status">
+                    Memuat pengaturan toko...
+                  </p>
+                )
+              )}
+            </div>
+          </section>
+        )}
+
         {/* Header & Unified Filter Bar */}
         <section className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 pb-5 border-b border-slate-300">
           <div className="space-y-1">
@@ -805,10 +1223,10 @@ export default function OwnerDashboard() {
           >
             <div className="min-w-0 sm:w-44">
               <DashboardDropdown
-                label="Outlet"
+                label="Toko"
                 value={outlet}
                 options={[
-                  { value: '', label: 'Semua outlet' },
+                  { value: '', label: 'Semua toko' },
                   ...data.outlets.map((o) => ({ value: o.id, label: o.name })),
                 ]}
                 onChange={setOutlet}

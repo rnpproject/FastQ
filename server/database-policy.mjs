@@ -32,7 +32,7 @@ const RUNTIME_ROLE_CHECK = `
   WHERE r.rolname=current_user
 `;
 
-export const REQUIRED_SCHEMA_VERSION = 8;
+export const REQUIRED_SCHEMA_VERSION = 11;
 
 export async function checkDatabaseReadiness(
   pool,
@@ -56,14 +56,18 @@ export async function checkDatabaseReadiness(
       to_regclass('public.sync_devices') IS NOT NULL AS sync_devices,
       to_regclass('public.sync_event_retention') IS NOT NULL AS sync_event_retention,
       to_regclass('public.auth_sessions') IS NOT NULL AS auth_sessions,
-      to_regclass('public.product_images') IS NOT NULL AS product_images`);
+      to_regclass('public.product_images') IS NOT NULL AS product_images,
+      to_regclass('public.user_outlet_access') IS NOT NULL AS user_outlet_access,
+      to_regclass('public.user_profile_photos') IS NOT NULL AS user_profile_photos`);
     const tables = requiredTables.rows[0] || {};
     if (
       !tables.sync_events ||
       !tables.sync_devices ||
       !tables.sync_event_retention ||
       !tables.auth_sessions ||
-      !tables.product_images
+      !tables.product_images ||
+      !tables.user_outlet_access ||
+      !tables.user_profile_photos
     )
       blockers.push('sync_schema_incomplete');
   } catch {

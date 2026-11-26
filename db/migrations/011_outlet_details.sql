@@ -1,0 +1,2 @@
+ALTER TABLE outlets
+  ADD COLUMN IF NOT EXISTS address text NOT NULL DEFAULT '';

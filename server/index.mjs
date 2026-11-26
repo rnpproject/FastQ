@@ -9,12 +9,21 @@ import { normalizeIdentity } from './auth-identity.mjs';
 import { createAuthSecurity } from './auth-security.mjs';
 import { checkDatabaseReadiness, REQUIRED_SCHEMA_VERSION } from './database-policy.mjs';
 import { createDashboardHandler } from './dashboard-handler.mjs';
+import { createAccessibleOutletsHandler } from './accessible-outlets-handler.mjs';
 import { postgresConnectionTlsStatus, postgresSslFromEnv } from './postgres-config.mjs';
 import { serveStaticFile } from './static-files.mjs';
 import { createSalesHandler } from './sales-handler.mjs';
+import { createAttendanceHistoryHandler } from './attendance-history-handler.mjs';
 import { createStockHistoryHandler } from './stock-history-handler.mjs';
-import { createProductImageHandler } from './product-image-handler.mjs';
+import { createProductImageHandler, inspectProductImage } from './product-image-handler.mjs';
+import { createOutletSessionHandler } from './outlet-session-handler.mjs';
 import { createSyncHandler } from './sync-handler.mjs';
+import {
+  canManageOutletAccess,
+  canManageUserAccounts,
+  canResetUserPassword,
+  isValidOutletAssignment,
+} from './user-management-policy.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const staticRoot = resolve(root, 'dist');
@@ -315,17 +324,14 @@ async function ownerLogin(req, res) {
   await pool.query(
     "DELETE FROM auth_sessions WHERE expires_at < now() OR revoked_at < now() - interval '30 days'",
   );
-  const payload = Buffer.from(
-    JSON.stringify({
-      sub: user.id,
-      sid,
-      name: user.name,
-      role: user.role,
-      outletId: user.outlet_id,
-      exp: expiresAt,
-    }),
-  ).toString('base64url');
-  const token = `${payload}.${createHmac('sha256', sessionSecret).update(payload).digest('base64url')}`;
+  const token = signSessionToken({
+    sub: user.id,
+    sid,
+    name: user.name,
+    role: user.role,
+    outletId: user.outlet_id,
+    exp: expiresAt,
+  });
   setSessionCookie(res, token, 30 * 24 * 60 * 60, {
     crossOrigin: isAllowedOrigin(req.headers.origin),
   });
@@ -342,6 +348,384 @@ async function ownerLogin(req, res) {
   });
 }
 
+async function changePassword(req, res) {
+  requireSameOrigin(req);
+  const actor = await activeSession(req);
+  const input = await readJson(req, 20000);
+  if (
+    typeof input.currentPassword !== 'string' ||
+    input.currentPassword.length > 256 ||
+    typeof input.newPassword !== 'string' ||
+    input.newPassword.length < 10 ||
+    input.newPassword.length > 256
+  )
+    return json(res, 400, { error: 'Password baru harus berisi 10-256 karakter.' });
+  const current = await pool.query(
+    'SELECT password_salt,password_hash FROM users WHERE id=$1 AND active=true',
+    [actor.id],
+  );
+  const credentials = current.rows[0];
+  if (
+    !credentials?.password_salt ||
+    !(await verifyPbkdf2(
+      input.currentPassword,
+      credentials.password_salt,
+      credentials.password_hash,
+    ))
+  )
+    return json(res, 400, { error: 'Password saat ini tidak sesuai.' });
+  if (input.currentPassword === input.newPassword)
+    return json(res, 400, { error: 'Password baru harus berbeda dari password saat ini.' });
+  const salt = randomBytes(16).toString('hex');
+  const hash = await pbkdf2(input.newPassword, salt);
+  const session = sessionUser(req);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const updated = await client.query(
+      'UPDATE users SET password_salt=$2,password_hash=$3 WHERE id=$1 AND active=true RETURNING id',
+      [actor.id, salt, hash],
+    );
+    if (!updated.rowCount) throw Object.assign(new Error('Akun tidak ditemukan.'), { status: 404 });
+    await client.query(
+      'UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1 AND id<>$2',
+      [actor.id, session.sid],
+    );
+    await client.query('COMMIT');
+    return json(res, 200, { changed: true });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function resetUserPassword(req, res) {
+  if (!pool) return json(res, 503, { error: 'DATABASE_URL belum dikonfigurasi.' });
+  requireSameOrigin(req);
+  const actor = await activeSession(req);
+  if (!canManageUserAccounts(actor.role))
+    return json(res, 403, { error: 'Hanya Pemilik atau Admin yang dapat mengatur password akun.' });
+  const input = await readJson(req, 20000);
+  if (
+    !isUuid(input.userId) ||
+    typeof input.newPassword !== 'string' ||
+    input.newPassword.length < 10 ||
+    input.newPassword.length > 256 ||
+    input.newPassword !== input.confirmPassword
+  )
+    return json(res, 400, {
+      error: 'Password baru harus dikonfirmasi dan berisi 10-256 karakter.',
+    });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const outlets = await manageableOutlets(actor, client);
+    const target = await client.query(
+      `SELECT id,role FROM users
+       WHERE id=$1 AND active=true AND outlet_id=ANY($2::uuid[])
+       FOR UPDATE`,
+      [input.userId, outlets.map((outlet) => outlet.id)],
+    );
+    if (!target.rowCount)
+      throw Object.assign(new Error('Akun tidak ditemukan pada outlet yang dapat Anda kelola.'), {
+        status: 404,
+      });
+    if (!canResetUserPassword(actor, target.rows[0]))
+      throw Object.assign(new Error('Akun ini tidak dapat diatur ulang password-nya.'), {
+        status: 403,
+      });
+
+    const salt = randomBytes(16).toString('hex');
+    const hash = await pbkdf2(input.newPassword, salt);
+    await client.query('UPDATE users SET password_salt=$2,password_hash=$3 WHERE id=$1', [
+      input.userId,
+      salt,
+      hash,
+    ]);
+    await client.query(
+      'UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=$1',
+      [input.userId],
+    );
+    await client.query('COMMIT');
+    return json(res, 200, { reset: true });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function profileRequest(req, res) {
+  if (!pool) return json(res, 503, { error: 'DATABASE_URL belum dikonfigurasi.' });
+  const actor = await activeSession(req);
+  if (req.method !== 'GET') requireSameOrigin(req);
+  if (!['GET', 'PUT'].includes(req.method))
+    return json(res, 405, { error: 'Method tidak didukung.' });
+
+  const readProfile = async (client) => {
+    const result = await client.query(
+      `SELECT u.id,u.name,u.role,u.outlet_id AS "outletId",u.login_identity,o.name AS outlet_name,
+         p.content_type,p.data
+       FROM users u JOIN outlets o ON o.id=u.outlet_id
+       LEFT JOIN user_profile_photos p ON p.user_id=u.id
+       WHERE u.id=$1 AND u.active=true`,
+      [actor.id],
+    );
+    const profile = result.rows[0];
+    if (!profile) throw Object.assign(new Error('Profil tidak ditemukan.'), { status: 404 });
+    const photo =
+      profile.data && profile.content_type
+        ? `data:${profile.content_type};base64,${Buffer.from(profile.data).toString('base64')}`
+        : null;
+    return {
+      id: profile.id,
+      name: profile.name,
+      role: profile.role,
+      identifier: profile.login_identity,
+      outletName: profile.outlet_name,
+      photo,
+    };
+  };
+
+  if (req.method === 'GET') return json(res, 200, { profile: await readProfile(pool) });
+  const input = await readJson(req, 50000);
+  if (typeof input.name !== 'string' || !input.name.trim() || input.name.trim().length > 60)
+    return json(res, 400, { error: 'Nama wajib diisi, maksimal 60 karakter.' });
+  const identifier = normalizeIdentity(input.identifier);
+  if (!identifier) return json(res, 400, { error: 'Email atau nomor HP profil tidak valid.' });
+  if (!Object.hasOwn(input, 'photo') || (input.photo !== null && typeof input.photo !== 'string'))
+    return json(res, 400, { error: 'Data foto profil tidak valid.' });
+
+  let photo = null;
+  if (input.photo !== null) {
+    const match = input.photo.match(/^data:(image\/(?:webp|jpeg));base64,([A-Za-z0-9+/]+={0,2})$/);
+    if (!match) return json(res, 400, { error: 'Format foto profil tidak valid.' });
+    const data = Buffer.from(match[2], 'base64');
+    if (data.length > 30 * 1024)
+      return json(res, 413, { error: 'Ukuran foto profil maksimal 30 KB.' });
+    photo = inspectProductImage(data);
+    if (photo.contentType !== match[1])
+      return json(res, 400, { error: 'Format foto profil tidak sesuai dengan isi berkas.' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+      `pos-owner-bootstrap:${actor.outlet_id}`,
+    ]);
+    const duplicate = await client.query(
+      'SELECT id FROM users WHERE outlet_id=$1 AND lower(name)=lower($2) AND active=true AND id<>$3',
+      [actor.outlet_id, input.name.trim(), actor.id],
+    );
+    if (duplicate.rowCount)
+      throw Object.assign(new Error('Nama tersebut sudah digunakan pada toko ini.'), {
+        status: 409,
+      });
+    const duplicateIdentity = await client.query(
+      'SELECT id FROM users WHERE login_identity=$1 AND active=true AND id<>$2',
+      [identifier, actor.id],
+    );
+    if (duplicateIdentity.rowCount)
+      throw Object.assign(new Error('Email atau nomor HP tersebut sudah digunakan.'), {
+        status: 409,
+      });
+    await client.query('UPDATE users SET name=$2,login_identity=$3 WHERE id=$1 AND active=true', [
+      actor.id,
+      input.name.trim(),
+      identifier,
+    ]);
+    if (photo) {
+      await client.query(
+        `INSERT INTO user_profile_photos(user_id,content_type,byte_size,data)
+         VALUES($1,$2,$3,$4)
+         ON CONFLICT(user_id) DO UPDATE SET
+           content_type=EXCLUDED.content_type,byte_size=EXCLUDED.byte_size,data=EXCLUDED.data,
+           updated_at=now()`,
+        [actor.id, photo.contentType, photo.buffer.length, photo.buffer],
+      );
+    } else {
+      await client.query('DELETE FROM user_profile_photos WHERE user_id=$1', [actor.id]);
+    }
+    const profile = await readProfile(client);
+    await client.query('COMMIT');
+    return json(res, 200, { profile });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    if (error.code === '23505' && error.constraint === 'users_login_identity_unique')
+      throw Object.assign(new Error('Email atau nomor HP tersebut sudah digunakan.'), {
+        status: 409,
+      });
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function manageableOutlets(actor, db = pool) {
+  if (actor.role === 'Pemilik') {
+    const result = await db.query(
+      'SELECT id,name,code,address FROM outlets WHERE owner_user_id=$1 ORDER BY name',
+      [actor.id],
+    );
+    return result.rows;
+  }
+  if (actor.role === 'Admin') {
+    const result = await db.query(
+      `SELECT o.id,o.name,o.code,o.address FROM outlets o
+       WHERE o.id=$2 OR EXISTS (
+         SELECT 1 FROM user_outlet_access a
+         WHERE a.user_id=$1 AND a.outlet_id=o.id
+       )
+       ORDER BY o.name`,
+      [actor.id, actor.outlet_id],
+    );
+    return result.rows;
+  }
+  throw Object.assign(new Error('Hanya Pemilik atau Admin yang dapat mengelola akun.'), {
+    status: 403,
+  });
+}
+
+async function storeAccessRequest(req, res) {
+  if (!pool) return json(res, 503, { error: 'DATABASE_URL belum dikonfigurasi.' });
+  const actor = await activeSession(req);
+  const isAccessEndpoint =
+    new URL(req.url, 'http://localhost').pathname === '/api/auth/store-access';
+  if (req.method !== 'GET') requireSameOrigin(req);
+  if (req.method === 'POST') {
+    if (actor.role !== 'Pemilik')
+      return json(res, 403, { error: 'Hanya Pemilik yang dapat membuat toko baru.' });
+    const input = await readJson(req, 20000);
+    if (typeof input.name !== 'string' || !input.name.trim() || input.name.trim().length > 100)
+      return json(res, 400, { error: 'Nama toko wajib diisi, maksimal 100 karakter.' });
+    const address = input.address === undefined ? '' : input.address;
+    if (typeof address !== 'string' || address.trim().length > 500)
+      return json(res, 400, { error: 'Alamat toko maksimal 500 karakter.' });
+    const result = await pool.query(
+      'INSERT INTO outlets(id,name,address,owner_user_id) VALUES($1,$2,$3,$4) RETURNING id,name,code,address,timezone',
+      [randomUUID(), input.name.trim(), address.trim(), actor.id],
+    );
+    return json(res, 201, { store: result.rows[0] });
+  }
+  if (req.method === 'GET') {
+    if (!isAccessEndpoint && actor.role !== 'Pemilik')
+      return json(res, 403, { error: 'Pengelolaan toko hanya tersedia untuk Pemilik.' });
+    if (!canManageUserAccounts(actor.role))
+      return json(res, 403, {
+        error: 'Pengelolaan akses toko hanya tersedia untuk Pemilik atau Admin.',
+      });
+    const outlets = await manageableOutlets(actor);
+    const outletIds = outlets.map((outlet) => outlet.id);
+    if (!isAccessEndpoint) return json(res, 200, { stores: outlets });
+    if (!outletIds.length) return json(res, 200, { stores: [], users: [] });
+    const users = await pool.query(
+      `SELECT u.id,u.name,u.role,u.outlet_id AS "outletId",
+         ARRAY(
+           SELECT DISTINCT assigned.outlet_id
+           FROM (
+             SELECT u.outlet_id
+             UNION
+             SELECT a.outlet_id FROM user_outlet_access a WHERE a.user_id=u.id
+           ) assigned
+           WHERE assigned.outlet_id=ANY($1::uuid[])
+           ORDER BY assigned.outlet_id
+         ) AS "storeIds"
+       FROM users u
+       WHERE u.active=true AND u.outlet_id=ANY($1::uuid[])
+         AND ($2 <> 'Admin' OR u.role <> 'Pemilik')
+       ORDER BY u.name`,
+      [outletIds, actor.role],
+    );
+    return json(res, 200, { stores: outlets, users: users.rows });
+  }
+  if (req.method === 'PUT' && !isAccessEndpoint) {
+    if (actor.role !== 'Pemilik')
+      return json(res, 403, { error: 'Hanya Pemilik yang dapat mengubah detail toko.' });
+    const input = await readJson(req, 20000);
+    if (
+      !isUuid(input.storeId) ||
+      typeof input.name !== 'string' ||
+      !input.name.trim() ||
+      input.name.trim().length > 100 ||
+      typeof input.address !== 'string' ||
+      input.address.trim().length > 500
+    )
+      return json(res, 400, { error: 'Nama atau alamat toko tidak valid.' });
+    const result = await pool.query(
+      `UPDATE outlets SET name=$2,address=$3
+       WHERE id=$1 AND owner_user_id=$4
+       RETURNING id,name,code,address,timezone`,
+      [input.storeId, input.name.trim(), input.address.trim(), actor.id],
+    );
+    if (!result.rowCount)
+      return json(res, 404, { error: 'Toko tidak ditemukan atau bukan milik Anda.' });
+    return json(res, 200, { store: result.rows[0] });
+  }
+  if (req.method === 'PUT' && isAccessEndpoint) {
+    if (!canManageUserAccounts(actor.role))
+      return json(res, 403, { error: 'Hanya Pemilik atau Admin yang dapat mengatur akses toko.' });
+    const input = await readJson(req, 20000);
+    if (
+      !isUuid(input.userId) ||
+      !Array.isArray(input.storeIds) ||
+      input.storeIds.length > 100 ||
+      input.storeIds.some((id) => !isUuid(id)) ||
+      new Set(input.storeIds).size !== input.storeIds.length
+    )
+      return json(res, 400, { error: 'Daftar toko atau pengguna tidak valid.' });
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const outlets = await manageableOutlets(actor, client);
+      const allowedOutletIds = new Set(outlets.map((outlet) => outlet.id));
+      const target = await client.query(
+        `SELECT u.id,u.role,u.outlet_id AS "outletId" FROM users u
+         WHERE u.id=$1 AND u.active=true AND u.outlet_id=ANY($2::uuid[])
+         FOR UPDATE`,
+        [input.userId, [...allowedOutletIds]],
+      );
+      if (!target.rowCount)
+        throw Object.assign(
+          new Error('Pengguna tidak ditemukan pada outlet yang dapat Anda kelola.'),
+          {
+            status: 404,
+          },
+        );
+      if (!canManageOutletAccess(actor, target.rows[0]))
+        throw Object.assign(new Error('Akun ini tidak dapat mengubah akses outlet.'), {
+          status: 403,
+        });
+      if (!isValidOutletAssignment(input.storeIds, allowedOutletIds, target.rows[0].outletId))
+        throw Object.assign(
+          new Error('Pilih outlet yang diizinkan dan pertahankan outlet utama pengguna.'),
+          { status: 400 },
+        );
+      await client.query(
+        'DELETE FROM user_outlet_access WHERE user_id=$1 AND outlet_id=ANY($2::uuid[])',
+        [input.userId, [...allowedOutletIds]],
+      );
+      await client.query(
+        `INSERT INTO user_outlet_access(user_id,outlet_id)
+         SELECT $1,id FROM outlets WHERE id=ANY($2::uuid[])`,
+        [input.userId, input.storeIds],
+      );
+      await client.query('COMMIT');
+      return json(res, 200, { userId: input.userId, storeIds: input.storeIds });
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+  return json(res, 405, { error: 'Method tidak didukung.' });
+}
+
 function isUuid(value) {
   return (
     typeof value === 'string' &&
@@ -349,15 +733,33 @@ function isUuid(value) {
   );
 }
 
+function signSessionToken(session) {
+  const payload = Buffer.from(JSON.stringify(session)).toString('base64url');
+  return `${payload}.${createHmac('sha256', sessionSecret).update(payload).digest('base64url')}`;
+}
+
 async function activeSession(req) {
   const session = sessionUser(req);
   if (!session)
     throw Object.assign(new Error('Sesi berakhir. Silakan login kembali.'), { status: 401 });
   const result = await pool.query(
-    `SELECT u.id,u.name,u.role,u.outlet_id
+    `SELECT u.id,u.name,u.role,$4::uuid AS outlet_id
     FROM auth_sessions s JOIN users u ON u.id=s.user_id
     WHERE s.id=$1 AND s.user_id=$2 AND s.revoked_at IS NULL AND s.expires_at>now()
-      AND u.active=true AND u.role=$3 AND u.outlet_id=$4`,
+      AND u.active=true AND u.role=$3
+      AND (
+        u.outlet_id=$4
+        OR (
+          u.role='Pemilik' AND EXISTS (
+            SELECT 1 FROM outlets o WHERE o.id=$4 AND o.owner_user_id=u.id
+          )
+        )
+        OR (
+          u.role<>'Pemilik' AND EXISTS (
+            SELECT 1 FROM user_outlet_access a WHERE a.user_id=u.id AND a.outlet_id=$4
+          )
+        )
+      )`,
     [session.sid, session.sub, session.role, session.outletId],
   );
   const user = result.rows[0];
@@ -509,6 +911,12 @@ async function accountRequest(req, res, pathname) {
         identity,
       ],
     );
+    await client.query(
+      'INSERT INTO user_outlet_access(user_id,outlet_id) VALUES($1,$2) ON CONFLICT DO NOTHING',
+      [input.id, outletId],
+    );
+    if (registering)
+      await client.query('UPDATE outlets SET owner_user_id=$2 WHERE id=$1', [outletId, input.id]);
     const outlet = await client.query('SELECT code,name FROM outlets WHERE id=$1', [outletId]);
     await client.query('COMMIT');
     return json(res, 201, {
@@ -722,8 +1130,22 @@ async function printLan(req, res) {
 }
 
 const ownerDashboard = createDashboardHandler({ pool, activeSession, json });
+const accessibleOutlets = createAccessibleOutletsHandler({ pool, activeSession, json });
 const salesHistory = createSalesHandler({ pool, activeSession, json, isUuid });
+const attendanceHistory = createAttendanceHistoryHandler({ pool, activeSession, json, isUuid });
 const stockHistory = createStockHistoryHandler({ pool, activeSession, json, isUuid });
+const outletSession = createOutletSessionHandler({
+  pool,
+  activeSession,
+  sessionUser,
+  requireSameOrigin,
+  readJson,
+  isUuid,
+  json,
+  setSessionCookie,
+  signSession: signSessionToken,
+  isAllowedOrigin,
+});
 const productImages = createProductImageHandler({
   pool,
   activeSession,
@@ -764,6 +1186,20 @@ createServer(async (req, res) => {
     if (url.pathname === '/api/auth/login' && req.method === 'POST')
       return await ownerLogin(req, res);
     if (url.pathname === '/api/auth/logout' && req.method === 'POST') return logout(req, res);
+    if (url.pathname === '/api/auth/password' && req.method === 'POST')
+      return await changePassword(req, res);
+    if (url.pathname === '/api/auth/users/password' && req.method === 'POST')
+      return await resetUserPassword(req, res);
+    if (url.pathname === '/api/auth/profile' && ['GET', 'PUT'].includes(req.method))
+      return await profileRequest(req, res);
+    if (url.pathname === '/api/auth/outlet' && req.method === 'POST')
+      return await outletSession(req, res);
+    if (url.pathname === '/api/auth/outlets' && req.method === 'GET')
+      return await accessibleOutlets(req, res);
+    if (url.pathname === '/api/auth/stores' && ['GET', 'POST', 'PUT'].includes(req.method))
+      return await storeAccessRequest(req, res);
+    if (url.pathname === '/api/auth/store-access' && ['GET', 'PUT'].includes(req.method))
+      return await storeAccessRequest(req, res);
     if (
       (url.pathname === '/api/auth/register' && req.method === 'POST') ||
       (url.pathname === '/api/auth/session' && req.method === 'GET') ||
@@ -775,16 +1211,24 @@ createServer(async (req, res) => {
     if (url.pathname === '/api/auth/users' && req.method === 'GET') {
       if (!pool) return json(res, 503, { error: 'DATABASE_URL belum dikonfigurasi.' });
       const actor = await activeSession(req);
-      if (!['Pemilik', 'Manajer', 'Admin'].includes(actor.role))
+      if (!canManageUserAccounts(actor.role))
         return json(res, 403, {
-          error: 'Daftar pengguna hanya tersedia untuk Pemilik, Manajer, atau Admin.',
+          error: 'Daftar pengguna hanya tersedia untuk Pemilik atau Admin.',
         });
+      const outlets = await manageableOutlets(actor);
+      const allowedOutletIds = outlets.map((outlet) => outlet.id);
       const requestedOutlet = url.searchParams.get('outletId');
-      if (requestedOutlet && requestedOutlet !== actor.outlet_id)
+      if (requestedOutlet && !allowedOutletIds.includes(requestedOutlet))
         return json(res, 403, { error: 'Outlet berada di luar akses akun.' });
+      const outletIds = requestedOutlet ? [requestedOutlet] : allowedOutletIds;
       const result = await pool.query(
-        `SELECT id,name,role,(totp_secret_ciphertext IS NOT NULL) AS "hasTotp" FROM users WHERE active=true AND outlet_id=$1 ORDER BY name`,
-        [actor.outlet_id],
+        `SELECT u.id,u.name,u.role,u.outlet_id AS "outletId",o.name AS "outletName",
+           (u.totp_secret_ciphertext IS NOT NULL) AS "hasTotp"
+         FROM users u JOIN outlets o ON o.id=u.outlet_id
+         WHERE u.active=true AND u.outlet_id=ANY($1::uuid[])
+           AND ($2 <> 'Admin' OR u.role <> 'Pemilik')
+         ORDER BY o.name,u.name`,
+        [outletIds, actor.role],
       );
       return json(res, 200, { users: result.rows });
     }
@@ -792,6 +1236,7 @@ createServer(async (req, res) => {
       return await ownerDashboard(req, res, url);
     if (url.pathname === '/api/sales' && req.method === 'GET')
       return await salesHistory(req, res, url);
+    if (url.pathname === '/api/attendance-history') return await attendanceHistory(req, res, url);
     if (url.pathname === '/api/stock-movements') return await stockHistory(req, res, url);
     if (url.pathname === '/api/product-images' && req.method === 'POST')
       return await productImages.upload(req, res);

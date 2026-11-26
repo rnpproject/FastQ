@@ -8,6 +8,8 @@
   Aplikasi kasir offline-first untuk toko ritel dan F&amp;B.
 </p>
 
+Pemilik dapat menambahkan beberapa toko dan mengatur toko yang dapat diakses setiap akun. Pemilik dan Admin dapat mengelola akun terdaftar, mengatur ulang password akun lain, serta mengubah akses outlet dalam lingkup outlet yang diizinkan. Setiap role dapat mengubah nama, email/nomor HP, foto profil, dan password sendiri dari halaman profil kasir.
+
 <h2 align="center">Teknologi</h2>
 
 <p align="center">
