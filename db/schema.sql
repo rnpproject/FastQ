@@ -70,13 +70,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS products_barcode_unique
 CREATE TABLE IF NOT EXISTS product_variants (
   id uuid PRIMARY KEY,
   product_id uuid NOT NULL REFERENCES products(id),
-  sku text NOT NULL UNIQUE,
-  barcode text UNIQUE,
+  sku text NOT NULL,
+  barcode text,
   name text NOT NULL,
   price_rupiah bigint NOT NULL CHECK (price_rupiah >= 0),
   cost_rupiah bigint NOT NULL DEFAULT 0 CHECK (cost_rupiah >= 0),
   metadata jsonb NOT NULL DEFAULT '{}'
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS product_variants_product_sku_unique
+  ON product_variants(product_id, sku);
+
+CREATE UNIQUE INDEX IF NOT EXISTS product_variants_product_barcode_unique
+  ON product_variants(product_id, barcode) WHERE barcode IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS stock_balances (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -234,6 +240,8 @@ CREATE TABLE IF NOT EXISTS stock_transfers (
   id uuid PRIMARY KEY,
   product_id uuid NOT NULL REFERENCES products(id),
   variant_id uuid REFERENCES product_variants(id),
+  to_product_id uuid REFERENCES products(id),
+  to_variant_id uuid REFERENCES product_variants(id),
   from_outlet_id uuid NOT NULL REFERENCES outlets(id),
   to_outlet_id uuid NOT NULL REFERENCES outlets(id),
   quantity numeric(18,3) NOT NULL CHECK (quantity > 0),

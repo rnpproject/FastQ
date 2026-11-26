@@ -133,8 +133,9 @@ export async function applyCatalogEvent({
     if (variants.length) {
       const existingVariants = await client.query(
         `SELECT id,product_id,sku,barcode FROM product_variants
-         WHERE id=ANY($1::uuid[]) OR sku=ANY($2::text[]) OR barcode=ANY($3::text[]) FOR UPDATE`,
-        [variants.map((variant) => variant.id), [...variantSkus], [...variantBarcodes]],
+         WHERE id=ANY($1::uuid[]) OR
+           (product_id=$4 AND (sku=ANY($2::text[]) OR barcode=ANY($3::text[]))) FOR UPDATE`,
+        [variants.map((variant) => variant.id), [...variantSkus], [...variantBarcodes], p.id],
       );
       for (const row of existingVariants.rows) {
         const byId = variants.find((variant) => variant.id === row.id);
@@ -143,8 +144,8 @@ export async function applyCatalogEvent({
           row.barcode && variants.find((variant) => variant.barcode === row.barcode);
         if (
           (byId && row.product_id !== p.id) ||
-          (bySku && bySku.id !== row.id) ||
-          (byBarcode && byBarcode.id !== row.id)
+          (row.product_id === p.id && bySku && bySku.id !== row.id) ||
+          (row.product_id === p.id && byBarcode && byBarcode.id !== row.id)
         ) {
           throw Object.assign(
             new Error('ID, SKU, atau barcode varian sudah terikat ke varian lain.'),

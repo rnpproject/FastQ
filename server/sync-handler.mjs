@@ -469,6 +469,7 @@ export function createSyncHandler({
               actor,
               deviceId: body.deviceId,
               isUuid,
+              createHash,
             });
           } else if (event.type === 'stock.delta' || event.type === 'stock.reconcile') {
             await applyStockEvent({ client, event, scope, actor, deviceId: body.deviceId, isUuid });
@@ -600,12 +601,19 @@ export function createSyncHandler({
       }));
       const transferRows = needsBootstrap
         ? await client.query(
-            `SELECT transfer.id,transfer.product_id AS "productId",
-                transfer.variant_id AS "variantId",transfer.from_outlet_id AS "from",
+            `SELECT transfer.id,
+                CASE WHEN transfer.to_outlet_id=$1
+                  THEN COALESCE(transfer.to_product_id,transfer.product_id)
+                  ELSE transfer.product_id END AS "productId",
+                CASE WHEN transfer.to_outlet_id=$1
+                  THEN COALESCE(transfer.to_variant_id,transfer.variant_id)
+                  ELSE transfer.variant_id END AS "variantId",
+                transfer.from_outlet_id AS "from",
                 transfer.to_outlet_id AS "to",transfer.quantity::text AS quantity,
                 transfer.note,transfer.occurred_at AS at,product.name AS "productName"
          FROM stock_transfers transfer
-         LEFT JOIN products product ON product.id=transfer.product_id
+         LEFT JOIN products product ON product.id=CASE WHEN transfer.to_outlet_id=$1
+           THEN COALESCE(transfer.to_product_id,transfer.product_id) ELSE transfer.product_id END
          WHERE transfer.from_outlet_id=$1 OR transfer.to_outlet_id=$1
          ORDER BY transfer.occurred_at DESC,transfer.id DESC LIMIT 500`,
             [scope],

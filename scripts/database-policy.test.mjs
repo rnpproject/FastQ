@@ -115,8 +115,8 @@ test('readiness blocks an older schema before applying required security migrati
   assert.deepEqual(result.blockers, ['schema_version_outdated']);
 });
 
-test('readiness requires the outlet-details database migration', async () => {
-  assert.equal(REQUIRED_SCHEMA_VERSION, 11);
+test('readiness requires the outlet stock transfer database migration', async () => {
+  assert.equal(REQUIRED_SCHEMA_VERSION, 12);
   const pool = {
     async query(sql) {
       if (sql.includes('pg_roles')) return { rowCount: 1, rows: [noPrivileges] };

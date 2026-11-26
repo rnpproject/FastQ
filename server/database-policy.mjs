@@ -32,7 +32,7 @@ const RUNTIME_ROLE_CHECK = `
   WHERE r.rolname=current_user
 `;
 
-export const REQUIRED_SCHEMA_VERSION = 11;
+export const REQUIRED_SCHEMA_VERSION = 12;
 
 export async function checkDatabaseReadiness(
   pool,

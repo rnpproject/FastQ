@@ -192,3 +192,60 @@ test('plain product upserts skip variant aggregation queries and reuse batch cat
     false,
   );
 });
+
+test('variant SKUs can be reused by separately outlet-scoped products', async () => {
+  const targetProductId = '00000000-0000-4000-8000-000000000011';
+  const sourceProductId = '00000000-0000-4000-8000-000000000012';
+  const targetVariantId = '00000000-0000-4000-8000-000000000013';
+  const variantId = '00000000-0000-4000-8000-000000000014';
+  const calls = [];
+  const client = {
+    query: async (sql, values) => {
+      calls.push({ sql, values });
+      if (sql.includes('SELECT id,sku,barcode,outlet_id,metadata FROM products'))
+        return { rowCount: 0, rows: [] };
+      if (sql.includes('INSERT INTO categories'))
+        return { rowCount: 1, rows: [{ id: customerId }] };
+      if (sql.includes('SELECT id,product_id,sku,barcode FROM product_variants'))
+        return {
+          rowCount: 1,
+          rows: [
+            { id: eventId, product_id: sourceProductId, sku: 'SHARED-VARIANT', barcode: null },
+          ],
+        };
+      if (sql.includes('INSERT INTO products('))
+        return { rowCount: 1, rows: [{ id: targetProductId }] };
+      if (sql.includes('INSERT INTO product_variants('))
+        return { rowCount: 1, rows: [{ id: targetVariantId }] };
+      return { rowCount: 1, rows: [] };
+    },
+  };
+  await applyCatalogEvent({
+    client,
+    scope: outletId,
+    deviceId: eventId,
+    isUuid,
+    event: {
+      id: eventId,
+      type: 'product.upsert',
+      outletId,
+      payload: {
+        id: targetProductId,
+        sku: 'PRODUCT-TARGET',
+        name: 'Produk target',
+        price: 100,
+        category: 'Uji',
+        variants: [
+          {
+            id: variantId,
+            sku: 'SHARED-VARIANT',
+            name: 'Ukuran kecil',
+            price: 100,
+          },
+        ],
+      },
+    },
+  });
+
+  assert.ok(calls.some((call) => call.sql.includes('INSERT INTO product_variants(')));
+});
